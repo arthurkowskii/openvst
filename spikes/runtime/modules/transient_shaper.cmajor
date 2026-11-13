@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: ISC
+// Original OpenVST spike module, 2026. No commercial DSP copied.
+//
+// TransientShaper: stereo differential transient shaper, sample by sample.
+//
+// Detection, per channel, on |x|:
+//   fast: one-pole follower, 2 ms attack and release (tracks the signal closely)
+//   slow: one-pole follower with asymmetric time constants, the classic
+//         differential-envelope arrangement: 25 ms attack (rises with the
+//         onset) and 120 ms release (holds the body level while the signal
+//         decays). e <- e + a * (|x| - e), a = 1 - exp (-1/(tau * sample_rate)),
+//         with a chosen by direction of change for the slow follower.
+//   diff = fast - slow. On an onset the fast follower rises above the slow one
+//   (transient region); during a decay the fast one falls below the slow one,
+//   which holds the recent body level (sustain region).
+//
+// Shape gain in dB (documented formula, no hidden magic):
+//   diff > 0  (fast envelope leads: onset)  shapeDb = attackDb  * clamp01 (diff / fast)
+//   diff <= 0 (decay)                       shapeDb = sustainDb * clamp01 ((slow - fast) / slow)
+//   shapeDb is clamped to [-24, +24] dB, then converted with 10^(shapeDb/20).
+//
+// Bounds: attack and sustain are dB event parameters clamped to [-12, +12];
+// 0 dB is exactly neutral (10^0 == 1). The output gain is a linear event
+// parameter clamped to [0, 2]. NaN event values are ignored and infinities are
+// absorbed by the clamps. The multiplier can never be negative (outGain >= 0
+// and 10^x > 0 for every finite x), so the module can never invert a signal's
+// sign by itself and never produces NaN or inf on the gain path.
+//
+// Sample by sample, no allocation, no disk access. State is fixed size and
+// deterministic: two envelope pairs, three parameter echoes, two coefficients.
+// Non-finite detector input contributes 0 to the followers so their state can
+// never be poisoned to NaN/inf; the audio path itself multiplies whatever the
+// host feeds by a finite gain (garbage in, garbage out, documented).
+
+processor TransientShaper
+{
+    input stream float32<2> audioIn;
+    input event float32 attack  [[ name: "Attack",  min: -12.0, max: 12.0, init: 0.0 ]];
+    input event float32 sustain [[ name: "Sustain", min: -12.0, max: 12.0, init: 0.0 ]];
+    input event float32 gain    [[ name: "Output gain", min: 0.0, max: 2.0, init: 1.0 ]];
+    output stream float32<2> audioOut;
+
+    float32 attackDb = 0.0f, sustainDb = 0.0f, outGain = 1.0f;
+    float32[2] fastEnv, slowEnv;
+    float32 aFast = 0.0f, aSlowUp = 0.0f, aSlowDown = 0.0f;
+
+    event attack (float32 v)  { if (v != v) return; attackDb = clamp (v, -12.0f, 12.0f); }
+    event sustain (float32 v) { if (v != v) return; sustainDb = clamp (v, -12.0f, 12.0f); }
+    event gain (float32 v)    { if (v != v) return; outGain = clamp (v, 0.0f, 2.0f); }
+
+    void main()
+    {
+        let rate = float64 (processor.frequency);
+        aFast = float32 (1.0 - exp (-1.0 / (0.002 * rate)));
+        aSlowUp = float32 (1.0 - exp (-1.0 / (0.025 * rate)));
+        aSlowDown = float32 (1.0 - exp (-1.0 / (0.120 * rate)));
+
+        loop
+        {
+            // Envelopes are updated with the current sample before the gain is
+            // applied, so the onset sample itself already receives the boost.
+            float32[2] x, g;
+            x[0] = audioIn[0];
+            x[1] = audioIn[1];
+
+            for (wrap<2> c)
+            {
+                let ax = abs (x[c]);
+                let xd = (ax != ax || ax > 1.0e30f) ? 0.0f : ax;
+                fastEnv[c] += aFast * (xd - fastEnv[c]);
+                let aSlow = xd > slowEnv[c] ? aSlowUp : aSlowDown;
+                slowEnv[c] += aSlow * (xd - slowEnv[c]);
+
+                let diff = fastEnv[c] - slowEnv[c];
+                let ratio = diff > 0.0f
+                    ? clamp (diff / max (fastEnv[c], 1.0e-15f), 0.0f, 1.0f)
+                    : clamp ((slowEnv[c] - fastEnv[c]) / max (slowEnv[c], 1.0e-15f), 0.0f, 1.0f);
+                let db = diff > 0.0f ? attackDb * ratio : sustainDb * ratio;
+                g[c] = outGain * float32 (pow (10.0, float64 (clamp (db, -24.0f, 24.0f)) / 20.0));
+            }
+
+            audioOut <- float32<2> (x[0] * g[0], x[1] * g[1]);
+            advance();
+        }
+    }
+}
+
+// Test adapter for the single-parameter host contract that today's harness and
+// container enforce (audioIn + exactly one float32 "gain" event endpoint).
+// attack and sustain are left unconnected, so they are never written and keep
+// their neutral init: this graph is behaviourally identical to TransientShaper
+// with attack = sustain = 0 dB, driven through the same source file.
+graph TransientShaperSpike
+{
+    input stream float32<2> audioIn;
+    input event float32 gain [[ name: "Output gain", min: 0.0, max: 2.0, init: 1.0 ]];
+    output stream float32<2> audioOut;
+
+    node shaper = TransientShaper;
+
+    connection
+    {
+        audioIn -> shaper.audioIn;
+        gain -> shaper.gain;
+        shaper.audioOut -> audioOut;
+    }
+}
