@@ -48,8 +48,15 @@ foreach ($name in $names) {
 
     $installed = Get-ChildItem -LiteralPath $target -Recurse -File |
         Where-Object { $_.Name -eq ($name + '.vst3') } | Select-Object -First 1
+    # The status line is "Ready - " + the module id since module selection
+    # landed, so the old fixed sentence no longer exists. Check what the build
+    # must contain instead of a sentence that has moved on: the second module
+    # and its permanent automation id prove this is the build under test.
     $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($installed.FullName))
-    if (-not $text.Contains('Ready - trusted fixture only')) { throw ('installed binary is not the fixed build: ' + $name) }
+    if (-not $text.Contains('Ready - ')) { throw ('installed binary is not the fixed build: ' + $name) }
+    if ($name -eq 'OpenVST FX' -and -not ($text.Contains('Transient Shaper') -and $text.Contains('openvst.ts.attack.v1'))) {
+        throw ('installed FX binary lacks the per-module parameter build: ' + $name)
+    }
     if ($text.Contains('Ready ?')) { throw ('installed binary still carries the old status string: ' + $name) }
     Write-Output ($name + ' installed sha256=' + (Get-FileHash -Algorithm SHA256 -LiteralPath $installed.FullName).Hash.ToLower())
 }
