@@ -16,11 +16,21 @@ inline juce::MemoryBlock verified(const juce::File& f,const char* hash) {
 }
 }
 struct Processor::DSP {
+    static constexpr int kMaxParams=kMaxParamsPerModule;
     cmaj::Engine engine;
     cmaj::Performer performer;
-    cmaj::EndpointHandle input=0,event=0,output=0;
+    cmaj::EndpointHandle input=0,midiEvent=0,output=0;
+    // Parameter plumbing is resolved here, at preparation, from the module's
+    // own table: no per-module special case anywhere else. hostParams[i] is
+    // the host-facing parameter whose automation drives paramEvents[i]; both
+    // are fixed at prepare time, so processBlock only reads them.
+    std::array<cmaj::EndpointHandle,kMaxParams> paramEvents{};
+    // AudioParameterFloat (not the AudioProcessorParameter base): its get()
+    // returns the denormalised value straight from an atomic, allocation-free.
+    std::array<juce::AudioParameterFloat*,kMaxParams> hostParams{};
     std::array<float,1024> in{},out{};
-    explicit DSP(const ModuleInfo& m,const Paths& paths,double rate) {
+    int paramCount=0;
+    explicit DSP(const ModuleInfo& m,const Paths& paths,double rate,const std::array<juce::AudioParameterFloat*,kMaxParams>& host) {
         // Cmajor's DLL singleton is not a loader for arbitrarily switchable engines.
         // Serialise initialisation and compilation; retain it for this process lifetime.
         static std::mutex compilerMutex;
@@ -51,20 +61,25 @@ struct Processor::DSP {
         trusted::require(outputs.size()==1 && audio(endpoint(outputs,"audioOut")),"Output must be stereo float32 stream");
         output=engine.getEndpointHandle("audioOut");
         if(synth) {
-            auto& e=endpoint(inputs,"midiIn"); trusted::require(inputs.size()==1 && e.isEvent() && e.dataTypes.size()==1 && e.isMIDI(),"MIDI endpoint must be single int32 Message object");
-            event=engine.getEndpointHandle("midiIn");
+            auto& e=endpoint(inputs,"midiIn"); trusted::require(inputs.size()==1+m.paramCount && e.isEvent() && e.dataTypes.size()==1 && e.isMIDI(),"MIDI endpoint must be single int32 Message object");
+            midiEvent=engine.getEndpointHandle("midiIn");
         } else {
-            // The container gain parameter stays present even for a module that
-            // has no gain endpoint; it is then simply never sent (neutral).
-            trusted::require(inputs.size()==(m.hasGainEndpoint?2:1) && audio(endpoint(inputs,"audioIn")),"FX endpoint contract mismatch");
-            if(m.hasGainEndpoint) {
-                auto& e=endpoint(inputs,"gain");
-                trusted::require(e.isEvent() && e.dataTypes.size()==1 && e.dataTypes[0].isFloat32(),"Gain endpoint contract mismatch");
-                event=engine.getEndpointHandle("gain");
-            }
+            trusted::require(inputs.size()==1+m.paramCount && audio(endpoint(inputs,"audioIn")),"FX endpoint contract mismatch");
             input=engine.getEndpointHandle("audioIn");
         }
-        trusted::require(output && (synth ? bool(event) : (bool(input) && (!m.hasGainEndpoint || bool(event)))),"Invalid endpoint handle");
+        // Every declared parameter must exist as a float32 event endpoint, and
+        // the patch must not carry any event/stream input the table ignores:
+        // the count check above makes the table exhaustive for this module.
+        paramCount=m.paramCount;
+        for(int i=0;i<paramCount;++i) {
+            const auto& p=m.params[i];
+            auto& e=endpoint(inputs,p.endpoint);
+            trusted::require(e.isEvent() && e.dataTypes.size()==1 && e.dataTypes[0].isFloat32(),"Parameter endpoint contract mismatch: "+std::string(p.endpoint));
+            paramEvents[(std::size_t)i]=engine.getEndpointHandle(p.endpoint);
+            hostParams[(std::size_t)i]=host[(std::size_t)i];
+            trusted::require(paramEvents[(std::size_t)i] && hostParams[(std::size_t)i],"Unresolved parameter plumbing: "+std::string(p.endpoint));
+        }
+        trusted::require(output && (synth ? bool(midiEvent) : bool(input)),"Invalid endpoint handle");
         trusted::require(engine.link(diag),"link: "+diag.toString());
         performer=engine.createPerformer(); trusted::require(bool(performer) && performer.getMaximumBlockSize()>=512,"Performer maximum block contract");
         trusted::require(performer.getLatency()==0,"Unexpected fixture latency");

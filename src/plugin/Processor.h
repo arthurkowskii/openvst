@@ -34,6 +34,17 @@ public:
     bool ready() const;
     void setGain(float);
     float gain() const;
+    // Static parameter union of this build's kind. Positions are frozen:
+    // parameter i always means the same automation ID for the process lifetime.
+    int paramCount() const;
+    const ParamInfo& paramInfo(int i) const;
+    float paramValue(int i) const;
+    void setParamValue(int i, float v); // clamped to the parameter's table range
+    // Editor-facing helpers: the active module's parameter i, mapped onto the
+    // static union (hostParameter returns nullptr when out of range).
+    juce::AudioProcessorParameter* hostParameter(int unionIndex) const;
+    int moduleParamHostIndex(int moduleParamIndex) const;
+    float moduleParamValue(int moduleParamIndex) const;
     juce::String moduleID() const;
     juce::String moduleHash() const;
     juce::String moduleVersion() const;
@@ -47,7 +58,15 @@ private:
     struct DSP;
     const bool instrument;
     const Paths paths;
-    juce::AudioParameterFloat* gainParameter = nullptr;
+    // Fixed-size host parameter union; filled once in the constructor, in
+    // registry order. idChars caches the table's C string for allocation-free
+    // audio-thread lookup. gainIndex is the union position of the legacy gain
+    // ID, or -1 when this kind has no such parameter.
+    static constexpr int kMaxParams = kMaxParamsPerModule;
+    std::array<juce::AudioParameterFloat*, kMaxParams> paramObjects{};
+    std::array<const char*, kMaxParams> paramIDs{};
+    int hostParamCount = 0;
+    int gainIndex = -1;
     std::atomic<const ModuleInfo*> selectedModule;
     std::atomic<double> preparedRate{0};
     // Shared, not unique: the audio thread takes a reference for the duration of
@@ -58,5 +77,6 @@ private:
     std::atomic<int> fault{1}; // 0 ready, 1 unprepared, 2 preparation, 3 state, 4 runtime
     mutable juce::CriticalSection errorLock;
     juce::String preparationError;
+    void resetParamsToDefaults();
 };
 }

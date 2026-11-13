@@ -5,7 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT"
 mkdir -p artifacts/plugin/fixtures build/plugin
 # Originals are read-only inputs; exact SHA256 allowlist is enforced at prepare.
-cp spikes/runtime/modules/stereo_gain.cmajor spikes/runtime/modules/stereo_gain.cmajorpatch spikes/runtime/modules/note_grid.cmajor spikes/runtime/modules/note_grid.cmajorpatch artifacts/plugin/fixtures/
+cp spikes/runtime/modules/stereo_gain.cmajor spikes/runtime/modules/stereo_gain.cmajorpatch spikes/runtime/modules/note_grid.cmajor spikes/runtime/modules/note_grid.cmajorpatch spikes/runtime/modules/transient_shaper.cmajor spikes/runtime/modules/transient_shaper.cmajorpatch artifacts/plugin/fixtures/
 RUNTIME=${OPENVST_RUNTIME:-"$ROOT/research/toolchain/1.0.3209/linux/x64/libCmajPerformer.so"}
 FIXTURES=${OPENVST_FIXTURES:-"$ROOT/artifacts/plugin/fixtures"}
 cmake -S . -B build/plugin -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DOPENVST_RUNTIME="$RUNTIME" -DOPENVST_FIXTURES="$FIXTURES" > artifacts/plugin/configure.log 2>&1

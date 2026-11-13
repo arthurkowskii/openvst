@@ -10,8 +10,13 @@ Status: early prototype, private quality, not ready for third-party modules.
 
 - `OpenVST FX` and `OpenVST Instrument`, two VST3 builds from one codebase.
 - Cmajor as the DSP engine: modules are `.cmajor` sources compiled at load time.
-- A stereo gain effect and a polyphonic sine instrument, kept as trusted
-  fixtures. Their job is to prove the container, not to sound good.
+- Two effects and one instrument, kept as trusted fixtures: a stereo gain, a
+  transient shaper with attack, sustain and output gain, and a polyphonic sine
+  instrument. Their job is to prove the container, not to sound good.
+- Module selection by stable identity inside the FX slot, with a per-module
+  hash, a per-module parameter table, permanent automation IDs and a state
+  document that reads older projects. A parameter of an inactive module stays
+  exposed to the host and has no effect.
 - Host parameters, project state restore, and DAW automation, verified in REAPER
   on Linux and Windows with identical renders.
 - A package validator that inspects a module archive without extracting or
@@ -19,10 +24,12 @@ Status: early prototype, private quality, not ready for third-party modules.
 
 ## What does not exist yet
 
-- Module selection: the FX slot always loads the stereo gain fixture.
+- A catalogue, downloads, publishing and accounts. Modules are compiled at load
+  time from the trusted fixture folder only.
 - Any HTML/JS module interface. The editor is a minimal native window.
-- The catalogue, downloads, publishing, accounts, signing, sandboxing.
 - Any claim of real-time performance. No audio callback has been measured.
+- Signing or any containment of third-party module code. A signature would prove
+  provenance, not safety.
 
 ## Build
 
