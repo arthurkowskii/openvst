@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <memory>
+#include "ModuleRegistry.h"
 namespace openvst {
 struct Paths { juce::String runtime, fixtures; static Paths defaults(); };
 class Processor final : public juce::AudioProcessor {
@@ -35,12 +36,24 @@ public:
     float gain() const;
     juce::String moduleID() const;
     juce::String moduleHash() const;
+    juce::String moduleVersion() const;
+    const ModuleInfo& module() const;
+    // Selection is validated against the static registry: an unknown id or a
+    // wrong-kind id is refused and the current selection is kept. Takes effect
+    // at the next prepareToPlay, never inside the audio callback.
+    bool setModuleID(const juce::String& id);
+    void reprepare(); // message-thread recompilation for editor-driven changes
 private:
     struct DSP;
     const bool instrument;
     const Paths paths;
     juce::AudioParameterFloat* gainParameter = nullptr;
-    std::unique_ptr<DSP> dsp;
+    std::atomic<const ModuleInfo*> selectedModule;
+    std::atomic<double> preparedRate{0};
+    // Shared, not unique: the audio thread takes a reference for the duration of
+    // a block, so a module change on the message thread cannot free the DSP under
+    // it. Access only through std::atomic_load / std::atomic_store.
+    std::shared_ptr<DSP> dsp;
     std::atomic<bool> prepared{false};
     std::atomic<int> fault{1}; // 0 ready, 1 unprepared, 2 preparation, 3 state, 4 runtime
     mutable juce::CriticalSection errorLock;

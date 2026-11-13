@@ -73,6 +73,61 @@ int main() {
     auto recalled=synth(insRestored,true); for(int c=0;c<2;++c) for(int i=0;i<2049;++i) near(recalled.getSample(c,i),b.getSample(c,i),"instrument state render");
     insRestored.setStateInformation(state.getData(),(int)state.getSize()); check(!insRestored.ready(),"cross-variant rejected");
     std::cout<<"PASS instrument state, cross-variant rejection, host partition invariance\n";
+    // --- Module registry: selection, defaults, refusal -----------------------------------
+    check(fx.getParameters().size()==1 && fx.moduleID()=="org.openvst.spike.stereo-gain","default FX selection");
+    check(!fx.setModuleID("org.example.transient-shaper"),"unknown id refused");
+    check(!fx.setModuleID("org.openvst.spike.note-grid"),"cross-kind id refused");
+    check(fx.moduleID()=="org.openvst.spike.stereo-gain","refusal keeps the current selection");
+    check(fx.getParameters().size()==1,"gain parameter survives selection attempts");
+    auto* idAfter=dynamic_cast<juce::AudioParameterFloat*>(fx.getParameters()[0]);
+    check(idAfter && idAfter->paramID=="openvst.fx.gain.v1" && idAfter->getNormalisableRange().start==0 && idAfter->getNormalisableRange().end==2,"parameter identity unchanged");
+    check(fx.setModuleID("org.openvst.spike.stereo-gain"),"known id accepted");
+    fx.prepareToPlay(48000,64); check(fx.ready(),fx.status().toRawUTF8());
+    fx.setGain(0.5f); block(fx,513,0.5f);
+    std::cout<<"PASS explicit selection compiles and passes audio\n";
+    fx.setGain(0.25f); juce::MemoryBlock fxSel; fx.getStateInformation(fxSel);
+    check(juce::String(fxSel.toString()).contains("org.openvst.spike.stereo-gain"),"state carries selected module id");
+    Processor fxSelRestored(false); fxSelRestored.setStateInformation(fxSel.getData(),(int)fxSel.getSize());
+    check(fxSelRestored.moduleID()=="org.openvst.spike.stereo-gain" && fxSelRestored.moduleHash()==fx.moduleHash(),"module roundtrip");
+    near(fxSelRestored.gain(),0.25f,"gain roundtrip with module");
+    fxSelRestored.prepareToPlay(48000,64); check(fxSelRestored.ready(),"selected module prepares"); block(fxSelRestored,513,0.25f);
+    std::cout<<"PASS state roundtrip with module selection\n";
+    // Legacy state: no module field -> default module of this build.
+    auto* legacyObj=new juce::DynamicObject;
+    legacyObj->setProperty("schema",1); legacyObj->setProperty("variant","fx");
+    legacyObj->setProperty("version","0.0.1"); legacyObj->setProperty("sourceSHA256",fx.moduleHash());
+    legacyObj->setProperty("engine","cmajor-1.0.3209"); legacyObj->setProperty("parameterID","openvst.fx.gain.v1");
+    legacyObj->setProperty("gain",0.625); legacyObj->setProperty("restoreValid",true);
+    auto legacy=juce::JSON::toString(juce::var(legacyObj),true);
+    Processor legacyFx(false); legacyFx.setStateInformation(legacy.toRawUTF8(),(int)legacy.getNumBytesAsUTF8());
+    check(legacyFx.moduleID()=="org.openvst.spike.stereo-gain","state without module field falls back to default");
+    near(legacyFx.gain(),0.625f,"legacy state gain");
+    legacyFx.prepareToPlay(48000,64); check(legacyFx.ready(),"legacy state prepares"); block(legacyFx,513,0.625f);
+    std::cout<<"PASS legacy state without module field restores default module\n";
+    // Unknown module id in state: refused, never substituted.
+    auto bogus=juce::String(fxSel.toString()).replace("org.openvst.spike.stereo-gain","org.example.transient-shaper");
+    Processor fxReject(false); fxReject.setStateInformation(bogus.toRawUTF8(),(int)bogus.getNumBytesAsUTF8());
+    check(!fxReject.ready(),"unknown module id in state refused");
+    check(fxReject.moduleID()=="org.openvst.spike.stereo-gain","refused state keeps default selection");
+    auto crossKind=juce::String(fxSel.toString()).replace("org.openvst.spike.stereo-gain","org.openvst.spike.note-grid");
+    Processor fxKind(false); fxKind.setStateInformation(crossKind.toRawUTF8(),(int)crossKind.getNumBytesAsUTF8());
+    check(!fxKind.ready(),"wrong-kind module id in state refused");
+    std::cout<<"PASS unknown and wrong-kind ids refused explicitly\n";
+    // Instrument build: default from legacy state, unknown id refused.
+    auto* legacyInsObj=new juce::DynamicObject;
+    legacyInsObj->setProperty("schema",1); legacyInsObj->setProperty("variant","instrument");
+    legacyInsObj->setProperty("version","0.0.1"); legacyInsObj->setProperty("sourceSHA256",ins.moduleHash());
+    legacyInsObj->setProperty("engine","cmajor-1.0.3209"); legacyInsObj->setProperty("parameterID","");
+    legacyInsObj->setProperty("gain",1); legacyInsObj->setProperty("restoreValid",true);
+    auto legacyInsState=juce::JSON::toString(juce::var(legacyInsObj),true);
+    Processor legacyIns(true); legacyIns.setStateInformation(legacyInsState.toRawUTF8(),(int)legacyInsState.getNumBytesAsUTF8());
+    check(legacyIns.moduleID()=="org.openvst.spike.note-grid","instrument legacy state defaults to note-grid");
+    legacyIns.prepareToPlay(48000,64); check(legacyIns.ready(),"instrument legacy state prepares");
+    auto insBogus=juce::String(juce::MemoryBlock(instrumentState).toString()).replace("org.openvst.spike.note-grid","org.example.ghost");
+    Processor insReject(true); insReject.setStateInformation(insBogus.toRawUTF8(),(int)insBogus.getNumBytesAsUTF8());
+    check(!insReject.ready(),"unknown instrument module refused");
+    std::cout<<"PASS instrument legacy default and refusal\n";
+    // --- end module registry tests --------------------------------------------------------
     std::ofstream raw(PLUGIN_ARTIFACT_DIR "/instrument.f32",std::ios::binary); for(int i=0;i<2049;++i) for(int c=0;c<2;++c) { float f=b.getSample(c,i); raw.write((char*)&f,4); }
     for(int n : {0,1,7,511,513}) { juce::AudioBuffer<float> small(2,n); juce::MidiBuffer m; ins.processBlock(small,m); for(int c=0;c<2;++c) for(int i=0;i<n;++i) check(std::isfinite(small.getSample(c,i)),"finite variable synth"); }
     ins.releaseResources(); ins.prepareToPlay(44100,7); check(ins.ready(),"synth reprepare rate");
