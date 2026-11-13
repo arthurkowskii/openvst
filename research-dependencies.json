@@ -1,0 +1,45 @@
+{
+  "schema": "openvst.research-dependencies/0",
+  "status": "Prototype inputs, not a final product dependency or licensing decision",
+  "dependencies": [
+    {
+      "name": "Cmajor source for release ABI",
+      "repository": "https://github.com/cmajor-lang/cmajor.git",
+      "tag": "1.0.3209",
+      "commit": "2d6ceb641b6f121b44d64e6f0cd134dbabfaa122",
+      "path": "research/cmajor-release",
+      "license_file": "LICENSE.md",
+      "open_source_option": "GPL-3.0-or-later",
+      "submodules": {
+        "include/choc": "fd7957101903640d2f2cb5fe3432fe77e47fd140"
+      }
+    },
+    {
+      "name": "Cmajor official Linux runtime release",
+      "tag": "1.0.3209",
+      "url": "https://github.com/cmajor-lang/cmajor/releases/download/1.0.3209/cmajor.linux.x64.zip",
+      "archive_sha256": "b7da026020c6afe823ff134d943631b741f531993292a38263736d7f08a47e7a",
+      "digest_verified_against": "GitHub release asset API digest",
+      "library_path": "research/toolchain/1.0.3209/linux/x64/libCmajPerformer.so",
+      "library_sha256": "b4c704e0efce4fc731911378a84329f730329ebe22924566cd05616fefaf643a",
+      "built_from_source_locally": false
+    },
+    {
+      "name": "JUCE candidate",
+      "repository": "https://github.com/juce-framework/JUCE.git",
+      "tag": "9.0.5",
+      "commit": "d60b7a78030661574a615b586d9325ba7a7fa7dd",
+      "path": "research/JUCE",
+      "license_file": "LICENSE.md",
+      "open_source_option": "AGPL-3.0",
+      "upstream_sbom": "JUCE.spdx.json",
+      "selected_for_public_product": false
+    }
+  ],
+  "limitations": [
+    "Third-party transitive licence inventory incomplete",
+    "Downloaded runtime is not a local source build",
+    "No redistribution, public release or final platform licence selected",
+    "No Windows or macOS validation implied"
+  ]
+}

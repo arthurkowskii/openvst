@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: ISC
+// Original OpenVST runtime spike, 2026. No commercial DSP copied.
+processor StereoGain
+{
+    input stream float32<2> audioIn;
+    input event float32 gain [[ name: "Gain", min: 0.0, max: 2.0, init: 1.0 ]];
+    output stream float32<2> audioOut;
+    float32 currentGain = 1.0f;
+    event gain (float32 value) { currentGain = clamp (value, 0.0f, 2.0f); }
+    void main()
+    {
+        loop { audioOut <- audioIn * currentGain; advance(); }
+    }
+}

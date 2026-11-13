@@ -1,0 +1,11 @@
+Licences et provenance du spike
+
+harness.cpp : GPL-3.0-or-later ; intègre les headers API/COM Cmajor du tag 1.0.3209, dont les notices Cmajor Software Ltd (2024) restent dans les sources upstream. Le moteur release précompilé n'est pas relicencié par ce fichier. Voir research/cmajor-release/LICENSE et les notices upstream ; aucun choix de licence finale de la plateforme n'est acquis ici.
+
+Modules stereo_gain.cmajor et note_grid.cmajor : implémentations originales de ce spike, licence ISC ci-dessous. Pas de copie de SineSynth ni d'un DSP commercial. note_grid utilise le type et les accesseurs std::midi::Message de la bibliothèque standard Cmajor embarquée (fichier de référence standard_library/std_library_midi.cmajor au tag exact ; Cmajor Software Ltd, 2024, ISC). Les primitives mathématiques sont celles du moteur.
+
+Copyright (c) 2026 OpenVST spike contributors
+Permission to use, copy, modify, and/or distribute the original module code for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+Dépendances : Cmajor propose GPLv3 ou licence commerciale ; CHOC possède ses propres notices. Ces indications ne remplacent pas l'inventaire transitif nécessaire avant distribution. Aucun binaire n'est publié par cette mission.

@@ -1,0 +1,1 @@
+{"CmajorVersion":1,"ID":"org.openvst.spike.stereo-gain","version":"0.0.1","name":"Stereo Gain Spike","isInstrument":false,"source":"stereo_gain.cmajor","mainProcessor":"StereoGain"}

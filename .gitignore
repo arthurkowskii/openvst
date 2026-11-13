@@ -1,0 +1,13 @@
+# Local research checkouts and downloaded toolchains are pinned separately.
+/research/
+/build/
+/artifacts/
+__pycache__/
+*.py[cod]
+.venv/
+# Agent logs are runtime evidence, not source.
+/docs/assignments/*.log
+.env
+.env.*
+*.user
+.DS_Store

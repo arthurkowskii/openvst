@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: ISC
+// Original OpenVST spike. 128 note-indexed sine voices, MIDI channel 1 only.
+// Retrigger same note resets its phase; note-off releases linearly over 480 frames.
+// Uses std::midi::Message API verified in tag 1.0.3209 (ISC standard library).
+processor NoteGrid
+{
+    input event std::midi::Message midiIn;
+    output stream float32<2> audioOut;
+    float64[128] phase, increment;
+    float32[128] level, releaseStep;
+
+    event midiIn (std::midi::Message m)
+    {
+        if (m.getChannel0to15() != 0) return;
+        let n = wrap<128> (m.getNoteNumber());
+        if (m.isNoteOn())
+        {
+            phase[n] = 0.0;
+            increment[n] = 6.283185307179586 * 440.0 * pow (2.0, (float64 (m.getNoteNumber()) - 69.0) / 12.0) / processor.frequency;
+            level[n] = m.getFloatVelocity() * 0.08f;
+            releaseStep[n] = 0.0f;
+        }
+        else if (m.isNoteOff())
+            releaseStep[n] = level[n] / 480.0f;
+    }
+
+    void main()
+    {
+        loop
+        {
+            float32 left, right;
+            for (wrap<128> n)
+            {
+                if (level[n] > 0.0f)
+                {
+                    let sample = float32 (sin (phase[n])) * level[n];
+                    left += sample;
+                    right += sample * (0.5f + float32 (int (n) % 12) / 24.0f);
+                    phase[n] += increment[n];
+                    if (phase[n] >= 6.283185307179586) phase[n] -= 6.283185307179586;
+                    level[n] = max (0.0f, level[n] - releaseStep[n]);
+                }
+            }
+            audioOut <- float32<2> (left, right);
+            advance();
+        }
+    }
+}

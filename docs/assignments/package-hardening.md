@@ -1,0 +1,14 @@
+# Revue et corrections bornées du validateur paquet
+
+deepseek-v4.1-flash/opencode-go/max uniquement. Ne délègue pas. Code + tests exécutés ; pas de docs gonflées, commit, déploiement ni changements système. Écriture seulement openvst/package_validation.py, tests/packages/, artifacts/packages/review/, scripts/package_validate.py si nécessaire. Lire le contrat actuel et le code. Le parent a réexécuté les25tests, verts, mais a trouvé des failles concrètes. Les fixtures sont fictives ; aucun code de paquet n'est exécuté.
+
+Reproductions parent réellement exécutées :
+- Fixture valid_fixture.zip modifiée avec champ worker='https://example.invalid/worker.js' dans patch/Evidence.cmajorpatch : validate_package renvoie ok=True. Le v0 interdit patch workers ET UI scriptée, donc valider les champs .cmajorpatch via allowlist minimale et refuser références externes/worker/view(s)/resources externes non maîtrisées. Laisser champs standards nécessaires aux deux fixtures de confiance (mainProcessor, isInstrument, etc.) et tester kind cohérent ; vérifier format Cmajor local, pas de web recherche.
+- _entry_path_problem('assets/a?.wav', Limits()) renvoie None : refuser tous caractères Windows interdits < > : doublequote | ? * ; considérer COM¹/²/³ et LPT¹/²/³ si pertinent. Tests portable sans besoin Windows. Ne normalise pas un chemin dangereux pour l'accepter.
+- _is_semver('1٢.0.0') renvoie True : \d Unicode mal placée. SemVer ASCII strict, tests au moins versions ascii valides et Unicode rejetée.
+
+Autre point sérieux à examiner/corriger : validate_package stat(path), _hash_package(path), open(path) magic puis ZipFile(path) rouvrent le chemin. Le rapport peut annoncer le hash d'octets autres que ceux validés si le fichier change. Utiliser un handle unique pour taille/hash/magic/ZipFile, vérifier stabilité fstat début/fin ou snapshot immuable. Prouver via test déterministe rename du chemin (mock ciblé admissible pour ce race) que hash et contenu validés sont identiques. Ne prétends pas empêcher toute mutation hostile en place par un autre processus avec droits identiques ; documenter qu'installateur doit consommer le snapshot vérifié et re-vérifier le hash. Pas de lecture entière ZIP512Mo en RAM.
+
+TDD chaque bug : nouveaux tests rouges avant correction (logs artifacts/packages/review/RED.txt), correction puis suite complète verte. Vérifier un ZIP ayant champs worker ou views même si chemin distant ou fichier non présent est rejeté. Refuser erreurs inattendues proprement. Pas de refactor900lignes pour style, rester borné aux causes. Inspecter aussi _check_archive pour crash non géré ; si bug concret trouver ajouter test, sinon ne surconçois pas.
+
+Rapport artifacts/packages/review/REPORT.md concis : bugs corrigés, commandes/sorties réelles, risques restants, tests ajoutés avec vrai décompte. Budget30tours/900s. Ne touche pas runtime, plugin, host ou leurs builds. Les lectures/tests paquets ne sont pas preuve de sandbox ou signatures.
