@@ -54,8 +54,16 @@ foreach ($name in $names) {
     # and its permanent automation id prove this is the build under test.
     $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($installed.FullName))
     if (-not $text.Contains('Ready - ')) { throw ('installed binary is not the fixed build: ' + $name) }
-    if ($name -eq 'OpenVST FX' -and -not ($text.Contains('Transient Shaper') -and $text.Contains('openvst.ts.attack.v1'))) {
-        throw ('installed FX binary lacks the per-module parameter build: ' + $name)
+    # Strings that only the catalogue commit contains: the permanent generic
+    # slots, the declarative UI schema and the Discover panel copy. A stale
+    # bundle from an earlier commit has none of them.
+    if (-not $text.Contains('openvst.ui/0')) { throw ('installed binary lacks the module UI build: ' + $name) }
+    if (-not $text.Contains('Press Refresh to list approved modules.')) { throw ('installed binary lacks the catalogue panel: ' + $name) }
+    if ($name -eq 'OpenVST FX' -and -not ($text.Contains('openvst.fx.module.8.v1') -and $text.Contains('openvst.ts.attack.v1'))) {
+        throw ('installed FX binary lacks the catalogue parameter build: ' + $name)
+    }
+    if ($name -eq 'OpenVST Instrument' -and -not $text.Contains('openvst.instr.module.8.v1')) {
+        throw ('installed Instrument binary lacks the catalogue parameter build: ' + $name)
     }
     if ($text.Contains('Ready ?')) { throw ('installed binary still carries the old status string: ' + $name) }
     Write-Output ($name + ' installed sha256=' + (Get-FileHash -Algorithm SHA256 -LiteralPath $installed.FullName).Hash.ToLower())

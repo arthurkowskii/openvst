@@ -52,6 +52,10 @@ local function main()
   assert(fx >= 0, 'FX insertion failed')
   assert(reaper.TrackFX_SetParamNormalized(fxTrack,fx,0,0.25))
   reaper.TrackFX_Show(fxTrack,fx,2) -- close any floating UI, DSP must remain active.
+  -- The host's own view of the plugin chunk: a reference for the tail JUCE
+  -- appends after the container's state document (host-level bypass data).
+  local chunkOk, chunk = reaper.TrackFX_GetNamedConfigParm(fxTrack,fx,'vst_chunk')
+  if chunkOk and chunk then write('fx-chunk.txt', chunk) end
   reaper.Main_SaveProjectEx(0,root .. '/fx.rpp',8)
   assert(math.abs(reaper.TrackFX_GetParamNormalized(fxTrack,fx,0)-0.25)<1e-6)
   reaper.Main_OnCommand(40023,0)

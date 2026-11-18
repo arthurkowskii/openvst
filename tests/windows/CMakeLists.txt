@@ -22,7 +22,7 @@ file(TO_CMAKE_PATH "${OPENVST_FIXTURES}" OPENVST_FIXTURES_FWD)
 add_subdirectory("${OPENVST_JUCE}" "${CMAKE_BINARY_DIR}/juce-build" EXCLUDE_FROM_ALL)
 # Compile the JUCE modules once, as in the verified Linux build, instead of
 # duplicating them inside each plugin target.
-add_library(openvst_core STATIC src/plugin/Processor.cpp)
+add_library(openvst_core STATIC src/plugin/Processor.cpp src/plugin/ModuleUI.cpp src/plugin/ModuleStore.cpp src/plugin/CatalogueClient.cpp)
 target_include_directories(openvst_core PUBLIC src/plugin "${OPENVST_JUCE}/modules" PRIVATE "${OPENVST_CMAJOR}/include")
 target_compile_definitions(openvst_core PUBLIC JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0 PRIVATE CMAJOR_DLL=1 "OPENVST_RUNTIME=\"${OPENVST_RUNTIME_FWD}\"" "OPENVST_FIXTURES=\"${OPENVST_FIXTURES_FWD}\"")
 target_link_libraries(openvst_core PRIVATE juce::juce_audio_processors juce::juce_cryptography)
@@ -30,6 +30,12 @@ if(MSVC)
   target_compile_options(openvst_core PUBLIC /utf-8 /W3)
 endif()
 target_compile_definitions(openvst_core INTERFACE JUCE_MODULE_AVAILABLE_juce_audio_processors=1 JUCE_MODULE_AVAILABLE_juce_gui_extra=1 JUCE_MODULE_AVAILABLE_juce_gui_basics=1 JUCE_MODULE_AVAILABLE_juce_graphics=1 JUCE_MODULE_AVAILABLE_juce_events=1 JUCE_MODULE_AVAILABLE_juce_core=1 JUCE_MODULE_AVAILABLE_juce_data_structures=1 JUCE_MODULE_AVAILABLE_juce_audio_basics=1 JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1 JUCE_MODULE_AVAILABLE_juce_cryptography=1)
+# Headless end-to-end catalogue probe (server -> install -> DSP -> offline
+# restore), built on the target machine so the Windows store and HTTP client
+# are exercised, not only the Linux ones.
+add_executable(openvst_catalogue_probe tests/plugin/CatalogueProbe.cpp)
+target_link_libraries(openvst_catalogue_probe PRIVATE openvst_core)
+
 foreach(kind IN ITEMS FX Instrument)
   if(kind STREQUAL "Instrument")
     set(synth TRUE)

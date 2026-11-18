@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
-PROJECTS = ("fx", "synth", "automation")
+PROJECTS = ("fx", "synth", "automation", "tremolo")
 
 
 def main(argv: list[str]) -> int:

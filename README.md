@@ -34,6 +34,14 @@ Status: early prototype, private quality, not ready for third-party modules.
   audit. A single admin token, no accounts yet.
 - Host parameters, project state restore, and DAW automation, verified in REAPER
   on Linux and Windows with identical renders.
+- A REAPER proof for a catalogue-installed module: the demo `Tremolo` is
+  installed from the store, selected through the plugin's own saved state,
+  rendered, saved, reopened offline and compared sample by sample with its
+  analytic sine modulation. The Windows and Linux renders are bit-identical
+  after 16-bit quantisation.
+- An offscreen editor snapshot tool (`openvst_editor_snapshot`) that renders the
+  real editor to PNG, so layout, contrast and clipping are measured without a
+  DAW window.
 - A package validator that inspects a module archive without extracting or
   executing it.
 
@@ -50,8 +58,8 @@ Status: early prototype, private quality, not ready for third-party modules.
   compiles the package source in-process. A signature would prove provenance,
   not safety.
 - Any claim of real-time performance. No audio callback has been measured.
-- A Windows or macOS rerun of this build. The tests below were run on Linux;
-  the previous Windows render predates the catalogue changes.
+- A macOS build or render. Linux and Windows only; a Linux render does not
+  prove macOS.
 
 ## Build
 
@@ -71,6 +79,7 @@ hardcoded into the product.
     python3 -m unittest discover -s tests/server -v       # catalogue server
     python3 -m unittest discover -s tests/integration -v  # server -> install -> DSP -> offline
     sh scripts/daw_smoke.sh                               # REAPER render, Linux
+    sh scripts/daw_smoke_tremolo.sh                       # catalogue module in REAPER, Linux
 
 The DAW test renders projects and checks samples against analytic values, so a
 silent or bypassed plugin fails instead of passing. The integration test starts

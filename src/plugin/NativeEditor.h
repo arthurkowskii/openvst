@@ -19,7 +19,11 @@ class NativeEditor final : public juce::AudioProcessorEditor, private juce::Time
     juce::String lastModuleID;
 public:
     explicit NativeEditor(Processor& processor):AudioProcessorEditor(processor),p(processor) {
+        // The editor owns its background: a host does not guarantee one, and on
+        // Linux a transparent plugin window let the desktop show through.
+        setOpaque(true);
         addAndMakeVisible(info); info.setJustificationType(juce::Justification::topLeft);
+        info.setColour(juce::Label::textColourId, juce::Colour(0xffe6e7ea));
         addAndMakeVisible(modules);
         addAndMakeVisible(discover);
         modules.onChange=[this]{
@@ -35,6 +39,7 @@ public:
         setSize(720,560);
         timerCallback(); startTimerHz(4);
     }
+    void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff1b1d22)); }
     void resized() override {
         info.setBounds(12,12,getWidth()-24,130);
         modules.setBounds(12,150,300,26);

@@ -10,6 +10,13 @@ namespace {
 constexpr int kMaxNodes = 128;
 constexpr int kMaxDepth = 8;
 const juce::Colour kAccent(0xffd9a441);
+// Explicit panel colours: the author cannot set a colour, and the host theme is
+// not ours to read, so the panel ships its own readable palette.
+const juce::Colour kBackground(0xff14161b);
+const juce::Colour kText(0xffe6e7ea);
+const juce::Colour kSubtleText(0xffb9bec7);
+const juce::Colour kGroupFill(0x22ffffff);
+const juce::Colour kGroupEdge(0x3affffff);
 
 juce::Font uiFont(float size) { return juce::Font(juce::FontOptions(size)); }
 
@@ -194,16 +201,20 @@ public:
     void refreshValue() override { for (auto& k : kids) k->refreshValue(); }
     void paint(juce::Graphics& g) override {
         if (!group) return;
-        auto r = getLocalBounds().toFloat().reduced(0.5f);
-        g.setColour(juce::Colour(0x18ffffff)); g.fillRoundedRectangle(r, 6.0f);
-        g.setColour(juce::Colour(0x30ffffff)); g.drawRoundedRectangle(r, 6.0f, 1.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.75f));
+        // Frame starts below the title band, so the caption never collides with
+        // the rounded border.
+        auto frame = getLocalBounds().toFloat().withTrimmedTop(10.0f).reduced(0.5f);
+        g.setColour(kGroupFill); g.fillRoundedRectangle(frame, 6.0f);
+        g.setColour(kGroupEdge); g.drawRoundedRectangle(frame, 6.0f, 1.0f);
+        auto head = getLocalBounds().removeFromTop(20).reduced(padding, 0);
+        g.setColour(kBackground); g.fillRect(head);
+        g.setColour(kSubtleText);
         g.setFont(uiFont(12.0f));
-        g.drawText(title, getLocalBounds().reduced(padding, 0).removeFromTop(20), juce::Justification::centredLeft, true);
+        g.drawText(title, head, juce::Justification::centredLeft, true);
     }
     void resized() override {
         auto content = getLocalBounds().reduced(padding);
-        if (group) content.removeFromTop(22);
+        if (group) content.removeFromTop(24);
         if (kids.empty()) return;
         if (!row) {
             int y = content.getY();
@@ -237,7 +248,7 @@ protected:
         int h = 0;
         if (row) { for (auto& k : kids) h = juce::jmax(h, k->preferredHeight()); }
         else { for (auto& k : kids) h += k->preferredHeight() + gap; if (h > 0) h -= gap; }
-        return h + padding * 2 + (group ? 22 : 0);
+        return h + padding * 2 + (group ? 24 : 0);
     }
 private:
     std::vector<std::unique_ptr<UIItem>> kids;
@@ -254,14 +265,19 @@ public:
         name.setText(std::move(label), juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
         name.setFont(uiFont(12.0f));
+        name.setColour(juce::Label::textColourId, kText);
         slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 66, 18);
         slider.setRange(min, max, 0.001);
         if (unit.isNotEmpty()) slider.setTextValueSuffix(" " + unit);
         slider.setColour(juce::Slider::rotarySliderFillColourId, kAccent);
+        slider.setColour(juce::Slider::rotarySliderOutlineColourId, juce::Colour(0xff2b2f38));
         slider.setColour(juce::Slider::thumbColourId, kAccent.brighter(0.25f));
-        slider.setColour(juce::Slider::textBoxTextColourId, juce::Colours::white.withAlpha(0.85f));
+        slider.setColour(juce::Slider::textBoxTextColourId, kText);
         slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        // The first paint must show the real value: waiting for the 30 Hz
+        // refresh timer would display the range minimum until it ticks.
+        slider.setValue(p.moduleParamValue(param), juce::dontSendNotification);
         slider.onDragStart = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->beginChangeGesture(); };
         slider.onDragEnd = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->endChangeGesture(); };
         slider.onValueChange = [this] { p.setModuleParamValue(param, (float)slider.getValue()); };
@@ -284,10 +300,15 @@ public:
         addAndMakeVisible(name); addAndMakeVisible(slider);
         name.setText(std::move(label), juce::dontSendNotification);
         name.setFont(uiFont(12.0f));
+        name.setColour(juce::Label::textColourId, kText);
         slider.setRange(min, max, 0.001);
         if (unit.isNotEmpty()) slider.setTextValueSuffix(" " + unit);
         slider.setColour(juce::Slider::trackColourId, kAccent.withAlpha(0.75f));
         slider.setColour(juce::Slider::thumbColourId, kAccent);
+        slider.setColour(juce::Slider::backgroundColourId, juce::Colour(0xff2b2f38));
+        slider.setColour(juce::Slider::textBoxTextColourId, kText);
+        slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+        slider.setValue(p.moduleParamValue(param), juce::dontSendNotification);
         slider.onDragStart = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->beginChangeGesture(); };
         slider.onDragEnd = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->endChangeGesture(); };
         slider.onValueChange = [this] { p.setModuleParamValue(param, (float)slider.getValue()); };
@@ -310,6 +331,9 @@ public:
         addAndMakeVisible(button);
         button.setButtonText(std::move(label));
         button.setClickingTogglesState(true);
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff2b2f38));
+        button.setColour(juce::TextButton::textColourOffId, kText);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
         button.setColour(juce::TextButton::buttonOnColourId, kAccent);
         button.onClick = [this] { p.setModuleParamValue(param, button.getToggleState() ? 1.0f : 0.0f); };
         setSize(200, 32);
@@ -334,8 +358,11 @@ public:
         addAndMakeVisible(name); addAndMakeVisible(value);
         name.setText(std::move(label), juce::dontSendNotification);
         name.setFont(uiFont(12.0f));
+        name.setColour(juce::Label::textColourId, kSubtleText);
         value.setJustificationType(juce::Justification::centredRight);
         value.setFont(uiFont(12.0f));
+        value.setColour(juce::Label::textColourId, kText);
+        value.setText(juce::String(p.moduleParamValue(param), precision) + suffix, juce::dontSendNotification);
         setSize(180, 24);
     }
     void refreshValue() override {
@@ -356,6 +383,7 @@ public:
         addAndMakeVisible(label);
         label.setText(std::move(text), juce::dontSendNotification);
         label.setFont(uiFont(12.0f));
+        label.setColour(juce::Label::textColourId, kSubtleText);
         setSize(240, 24);
     }
     void resized() override { label.setBounds(getLocalBounds()); }
@@ -459,6 +487,10 @@ int ModuleUIComponent::preferredHeight() const { return impl->root ? impl->root-
 
 void ModuleUIComponent::resized() {
     if (impl->root) impl->root->setBounds(getLocalBounds());
+}
+
+void ModuleUIComponent::paint(juce::Graphics& g) {
+    g.fillAll(kBackground);
 }
 
 void ModuleUIComponent::timerCallback() {

@@ -10,6 +10,8 @@ DEST='C:/Users/Arthur/AppData/Local/OpenVST-test-staging/'
 cp tests/windows/CMakeLists.txt "$ART/kit/CMakeLists.txt"
 mkdir -p "$ART/kit/tests/daw"
 cp tests/windows/create_projects.lua "$ART/kit/tests/daw/"
+mkdir -p "$ART/kit/tests/plugin"
+cp tests/plugin/CatalogueProbe.cpp "$ART/kit/tests/plugin/"
 cp tests/daw/make_input.py tests/daw/check_render.py "$ART/kit/tests/daw/"
 tar -C research/JUCE -czf "$ART/juce-9.0.5-src.tar.gz" modules extras/Build CMakeLists.txt LICENSE.md
 (cd "$ART" && tar -czf kit.tar.gz kit juce-9.0.5-src.tar.gz cmajor-include-1.0.3209.tar.gz run_windows_test.ps1)

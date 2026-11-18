@@ -58,3 +58,8 @@ endif()
 # End-to-end catalogue probe used by tests/integration/test_catalogue_e2e.py.
 add_executable(openvst_catalogue_probe tests/plugin/CatalogueProbe.cpp)
 target_link_libraries(openvst_catalogue_probe PRIVATE openvst_core)
+
+# Offscreen editor snapshot: renders the real editor to a PNG on a headless
+# display so layout defects are measured instead of guessed from a host window.
+add_executable(openvst_editor_snapshot tests/plugin/EditorSnapshot.cpp)
+target_link_libraries(openvst_editor_snapshot PRIVATE openvst_core juce::juce_gui_basics)

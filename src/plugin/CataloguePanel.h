@@ -27,6 +27,13 @@ public:
         addAndMakeVisible(details);
         status.setJustificationType(juce::Justification::topLeft);
         details.setJustificationType(juce::Justification::topLeft);
+        // Explicit colours: the panel paints its own card, so a host theme with
+        // dark text on a light background would make the status unreadable.
+        status.setColour(juce::Label::textColourId, juce::Colour(0xffe6e7ea));
+        details.setColour(juce::Label::textColourId, juce::Colour(0xffc9ced6));
+        list.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff2b2f38));
+        list.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe6e7ea));
+        list.setColour(juce::ComboBox::outlineColourId, juce::Colour(0x3affffff));
         status.setText("Catalogue: " + paths.catalogueURL + "\nPress Refresh to list approved modules.", juce::dontSendNotification);
         refreshButton.onClick = [this] { refresh(); };
         installButton.onClick = [this] { install(); };
@@ -39,11 +46,18 @@ public:
         };
     }
     void paint(juce::Graphics& g) override {
-        g.setColour(juce::Colour(0x18ffffff));
+        // Opaque card first: a host window may paint nothing behind the editor.
+        g.fillAll(juce::Colour(0xff1b1d22));
+        g.setColour(juce::Colour(0xff22252c));
         g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 6.0f);
-        g.setColour(juce::Colour(0x30ffffff));
+        g.setColour(juce::Colour(0x3affffff));
         g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 6.0f, 1.0f);
     }
+    // Same code path as the buttons, callable without a message loop by the
+    // headless editor snapshot tool.
+    void refreshNow() { refresh(); }
+    void installNow() { install(); }
+    void selectFirstEntry() { if (list.getNumItems() > 0) list.setSelectedItemIndex(0, juce::sendNotificationSync); }
     void resized() override {
         auto r = getLocalBounds().reduced(12);
         auto top = r.removeFromTop(28);

@@ -22,6 +22,10 @@ public:
     int preferredWidth() const;
     int preferredHeight() const;
     void resized() override;
+    // The panel owns its background: a host window is not guaranteed to paint
+    // anything behind the editor, and a test host may composite it over the
+    // desktop. Without this, group frames and labels lose their contrast.
+    void paint(juce::Graphics&) override;
 private:
     struct Impl;
     explicit ModuleUIComponent(Processor&);

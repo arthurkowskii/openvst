@@ -39,6 +39,54 @@ $resFile = Join-Path $WorkDir 'result.txt'
 $ready = Join-Path $WorkDir 'agent-ready.txt'
 $log = Join-Path $WorkDir 'agent.log'
 function Note($text) { ('{0:HH:mm:ss} {1}' -f (Get-Date), $text) | Out-File -FilePath $log -Append -Encoding utf8 }
+function Dismiss-AudioPrompt {
+    if (-not ('AudioPrompt' -as [type])) {
+        Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public class AudioPrompt {
+    public delegate bool Proc(IntPtr h, IntPtr p);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(Proc cb, IntPtr p);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, Proc cb, IntPtr p);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    public static bool DismissFor(System.Collections.Generic.HashSet<uint> targets) {
+        bool dismissed = false;
+        EnumWindows((h, p) => {
+            uint pid; GetWindowThreadProcessId(h, out pid);
+            if (!targets.Contains(pid)) return true;
+            bool mentionsAudio = false;
+            IntPtr noButton = IntPtr.Zero;
+            EnumChildWindows(h, (ch, cp) => {
+                var t = new StringBuilder(512); GetWindowText(ch, t, 512);
+                var c = new StringBuilder(128); GetClassName(ch, c, 128);
+                if (t.ToString().Contains("audio device")) mentionsAudio = true;
+                if (c.ToString() == "Button" && t.ToString().Trim('&', ' ') == "No") noButton = ch;
+                return true;
+            }, IntPtr.Zero);
+            if (mentionsAudio && noButton != IntPtr.Zero) {
+                SendMessage(noButton, 0x00F5, IntPtr.Zero, IntPtr.Zero);
+                dismissed = true;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return dismissed;
+    }
+}
+"@
+    }
+    $pids = New-Object 'System.Collections.Generic.HashSet[uint32]'
+    Get-CimInstance Win32_Process -Filter "Name='reaper.exe'" | ForEach-Object {
+        if ($_.CommandLine -and $_.CommandLine -like '*OpenVST-test\profile*') { [void]$pids.Add([uint32]$_.ProcessId) }
+    }
+    if ($pids.Count -eq 0) { return 'no-test-instance' }
+    if ([AudioPrompt]::DismissFor($pids)) { return 'dismissed' }
+    return 'no-prompt'
+}
 function Shot($name) {
     $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
     $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
@@ -146,6 +194,79 @@ while ($true) {
                     $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
                     $g.Dispose(); $bmp.Dispose()
                     ('shotwin ' + $path + ' ' + $w + 'x' + $h) | Out-File -FilePath $resFile -Append -Encoding utf8
+                }
+                'clickreaper' {
+                    # Click at window-relative coordinates inside the test
+                    # REAPER window (title bar included, like the screenshot).
+                    $target = Get-CimInstance Win32_Process -Filter "Name='reaper.exe'" |
+                        Where-Object { $_.CommandLine -and $_.CommandLine -like '*OpenVST-test\profile*' } |
+                        Select-Object -First 1
+                    if (-not $target) { throw 'no test REAPER instance' }
+                    $p = Get-Process -Id $target.ProcessId -ErrorAction Stop
+                    [Native]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+                    [Native]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+                    Start-Sleep -Milliseconds 400
+                    $r = New-Object Native+RECT
+                    [Native]::GetWindowRect($p.MainWindowHandle, [ref]$r) | Out-Null
+                    $x = $r.Left + [int]$parts[1]
+                    $y = $r.Top + [int]$parts[2]
+                    [Native]::SetCursorPos($x, $y) | Out-Null
+                    Start-Sleep -Milliseconds 150
+                    [Native]::mouse_event(0x02, 0, 0, 0, [IntPtr]::Zero)
+                    [Native]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)
+                    ('clickreaper ok ' + $x + ',' + $y + ' window=' + $r.Left + ',' + $r.Top) | Out-File -FilePath $resFile -Append -Encoding utf8
+                }
+                'dblclickreaper' {
+                    $target = Get-CimInstance Win32_Process -Filter "Name='reaper.exe'" |
+                        Where-Object { $_.CommandLine -and $_.CommandLine -like '*OpenVST-test\profile*' } |
+                        Select-Object -First 1
+                    if (-not $target) { throw 'no test REAPER instance' }
+                    $p = Get-Process -Id $target.ProcessId -ErrorAction Stop
+                    [Native]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+                    [Native]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+                    Start-Sleep -Milliseconds 400
+                    $r = New-Object Native+RECT
+                    [Native]::GetWindowRect($p.MainWindowHandle, [ref]$r) | Out-Null
+                    $x = $r.Left + [int]$parts[1]
+                    $y = $r.Top + [int]$parts[2]
+                    [Native]::SetCursorPos($x, $y) | Out-Null
+                    Start-Sleep -Milliseconds 120
+                    [Native]::mouse_event(0x02, 0, 0, 0, [IntPtr]::Zero)
+                    [Native]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)
+                    Start-Sleep -Milliseconds 80
+                    [Native]::mouse_event(0x02, 0, 0, 0, [IntPtr]::Zero)
+                    [Native]::mouse_event(0x04, 0, 0, 0, [IntPtr]::Zero)
+                    ('dblclickreaper ok ' + $x + ',' + $y) | Out-File -FilePath $resFile -Append -Encoding utf8
+                }
+                'shotreaper' {
+                    # Capture the test REAPER window only: the instance whose
+                    # command line names the OpenVST test profile. Arthur's own
+                    # session is never captured.
+                    $target = Get-CimInstance Win32_Process -Filter "Name='reaper.exe'" |
+                        Where-Object { $_.CommandLine -and $_.CommandLine -like '*OpenVST-test\profile*' } |
+                        Select-Object -First 1
+                    if (-not $target) { throw 'no test REAPER instance' }
+                    $p = Get-Process -Id $target.ProcessId -ErrorAction Stop
+                    [Native]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+                    [Native]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+                    Start-Sleep -Milliseconds 500
+                    $r = New-Object Native+RECT
+                    [Native]::GetWindowRect($p.MainWindowHandle, [ref]$r) | Out-Null
+                    $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
+                    if ($w -le 0 -or $h -le 0) { throw 'invalid window rect' }
+                    $bmp = New-Object System.Drawing.Bitmap $w, $h
+                    $g = [System.Drawing.Graphics]::FromImage($bmp)
+                    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size $w, $h))
+                    $path = Join-Path $WorkDir ($parts[1] + '.png')
+                    $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+                    $g.Dispose(); $bmp.Dispose()
+                    ('shotreaper ' + $path + ' ' + $w + 'x' + $h + ' pid=' + $p.Id) | Out-File -FilePath $resFile -Append -Encoding utf8
+                }
+                'dismiss' {
+                    # Answer No to REAPER's "no audio device selected" modal on
+                    # test instances only (their command line names the profile).
+                    $state = Dismiss-AudioPrompt
+                    ('dismiss ' + $state) | Out-File -FilePath $resFile -Append -Encoding utf8
                 }
                 'windows' {
                     Get-Process | Where-Object { $_.MainWindowTitle } |

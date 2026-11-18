@@ -142,9 +142,16 @@ def build(out: Path) -> dict:
         (root / "patch" / "Tremolo.cmajorpatch").write_text(json.dumps(PATCH, indent=2) + "\n", encoding="utf-8")
         (root / "ui.json").write_text(json.dumps(UI, indent=2) + "\n", encoding="utf-8")
 
+        # A module version is immutable: rebuilding the same sources must give
+        # the same package bytes, or the catalogue digest would change under a
+        # version that was already published. Fixed timestamps and a fixed
+        # entry order remove the two sources of variation zipfile leaves in.
         with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for rel in ("openvst.json", "patch/Tremolo.cmajor", "patch/Tremolo.cmajorpatch", "ui.json"):
-                zf.write(root / rel, rel)
+                info = zipfile.ZipInfo(rel, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                zf.writestr(info, (root / rel).read_bytes())
 
     report = validate_package(out)
     if not report.ok:
