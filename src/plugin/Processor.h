@@ -3,9 +3,18 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <atomic>
 #include <memory>
+#include <vector>
 #include "ModuleRegistry.h"
+#include "ModuleSpec.h"
+
 namespace openvst {
-struct Paths { juce::String runtime, fixtures; static Paths defaults(); };
+struct Paths {
+    juce::String runtime, fixtures;
+    juce::File moduleStore;      // empty disables catalogue-installed modules
+    juce::String catalogueURL;   // empty disables the catalogue client
+    static Paths defaults();
+};
+
 class Processor final : public juce::AudioProcessor {
 public:
     explicit Processor(bool instrument, Paths = Paths::defaults());
@@ -34,40 +43,52 @@ public:
     bool ready() const;
     void setGain(float);
     float gain() const;
-    // Static parameter union of this build's kind. Positions are frozen:
-    // parameter i always means the same automation ID for the process lifetime.
+    // Host-facing parameter set: the built-in union followed by the permanent
+    // generic slots. Positions are frozen for the process lifetime.
     int paramCount() const;
     const ParamInfo& paramInfo(int i) const;
-    float paramValue(int i) const;
-    void setParamValue(int i, float v); // clamped to the parameter's table range
-    // Editor-facing helpers: the active module's parameter i, mapped onto the
-    // static union (hostParameter returns nullptr when out of range).
+    float paramValue(int i) const; // host value: real for built-ins, 0..1 for slots
+    void setParamValue(int i, float v); // clamped to the host parameter's range
     juce::AudioProcessorParameter* hostParameter(int unionIndex) const;
+    // Editor/state helpers: real module values, independent of the host range.
     int moduleParamHostIndex(int moduleParamIndex) const;
     float moduleParamValue(int moduleParamIndex) const;
+    void setModuleParamValue(int moduleParamIndex, float value);
     juce::String moduleID() const;
     juce::String moduleHash() const;
     juce::String moduleVersion() const;
-    const ModuleInfo& module() const;
-    // Selection is validated against the static registry: an unknown id or a
-    // wrong-kind id is refused and the current selection is kept. Takes effect
-    // at the next prepareToPlay, never inside the audio callback.
+    juce::String packageHash() const;
+    const ModuleSpec& module() const;
+    const Paths& processorPaths() const { return paths; }
+    const std::vector<ModuleSpec>& builtinModules() const { return builtins; }
+    const std::vector<ModuleSpec>& installedModules() const { return installed; }
+    // Re-scans the module store. Message thread only; audio is untouched until
+    // the next prepareToPlay. Returns true when the installed set changed.
+    bool refreshInstalledModules();
+    // Used by tests and by the installer after a store scan. Takes effect on
+    // the next selection; does not compile anything.
+    void setInstalledModules(std::vector<ModuleSpec> modules);
+    // Selection is validated against built-ins and installed modules: an
+    // unknown id or wrong-kind id is refused and the current selection is
+    // kept. With an empty hash, the highest version of that id wins. Takes
+    // effect at the next prepareToPlay, never inside the audio callback.
     bool setModuleID(const juce::String& id);
+    bool setModule(const juce::String& id, const juce::String& sourceSHA256);
     void reprepare(); // message-thread recompilation for editor-driven changes
 private:
     struct DSP;
     const bool instrument;
     const Paths paths;
-    // Fixed-size host parameter union; filled once in the constructor, in
-    // registry order. idChars caches the table's C string for allocation-free
-    // audio-thread lookup. gainIndex is the union position of the legacy gain
-    // ID, or -1 when this kind has no such parameter.
-    static constexpr int kMaxParams = kMaxParamsPerModule;
-    std::array<juce::AudioParameterFloat*, kMaxParams> paramObjects{};
-    std::array<const char*, kMaxParams> paramIDs{};
+    // Host parameter array: built-in union then generic slots.
+    std::array<juce::AudioParameterFloat*, kMaxHostParams> paramObjects{};
+    std::array<const char*, kMaxHostParams> paramIDs{};
     int hostParamCount = 0;
     int gainIndex = -1;
-    std::atomic<const ModuleInfo*> selectedModule;
+    std::vector<ModuleSpec> builtins;
+    std::vector<ModuleSpec> installed;
+    // The selected module is an immutable value object. The audio thread does
+    // not read it at all: preparation resolves everything into the DSP.
+    std::shared_ptr<const ModuleSpec> selectedModule;
     std::atomic<double> preparedRate{0};
     // Shared, not unique: the audio thread takes a reference for the duration of
     // a block, so a module change on the message thread cannot free the DSP under
@@ -77,6 +98,7 @@ private:
     std::atomic<int> fault{1}; // 0 ready, 1 unprepared, 2 preparation, 3 state, 4 runtime
     mutable juce::CriticalSection errorLock;
     juce::String preparationError;
+    const ModuleSpec* findSpec(const juce::String& id, const juce::String& hash) const;
     void resetParamsToDefaults();
 };
-}
+} // namespace openvst

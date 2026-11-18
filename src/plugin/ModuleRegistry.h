@@ -31,8 +31,10 @@ struct ModuleInfo {
 };
 
 // Capacity shared with the DSP parameter plumbing; the whole union of one
-// build's kind must fit.
+// build's kind plus the generic catalogue slots must fit.
 inline constexpr int kMaxParamsPerModule = 8;
+inline constexpr int kGenericSlots = 8;
+inline constexpr int kMaxHostParams = 16;
 
 inline constexpr bool cstrEq(const char* a, const char* b) {
     while (*a != '\0' && *b != '\0') if (*a++ != *b++) return false;
@@ -66,6 +68,33 @@ inline constexpr ModuleInfo kModules[] = {
      "84c27d2ad9c6a16948d99f7b830f1e3e6a8f269da6c49e8c29bac10ce8f391ea",
      "cf8940610b1ecd410de5998e006e5e69d647f702b29690e4bc670fd4daa499fe",
      true, "NoteGrid", nullptr, 0},
+};
+
+// Generic host parameters for catalogue-installed modules. JUCE fixes the
+// parameter list when the processor is constructed, so an installed module
+// cannot add parameters at run time. These slots are permanent automation
+// identities: position and ID never change, whatever module currently uses
+// them. The editor shows the active module's own names and ranges; the host
+// always sees a normalised 0..1 lane.
+inline constexpr ParamInfo kFxGenericParams[kGenericSlots] = {
+    {"openvst.fx.module.1.v1", "Module param 1", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.2.v1", "Module param 2", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.3.v1", "Module param 3", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.4.v1", "Module param 4", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.5.v1", "Module param 5", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.6.v1", "Module param 6", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.7.v1", "Module param 7", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.fx.module.8.v1", "Module param 8", "", 0.0f, 1.0f, 0.0f, ""},
+};
+inline constexpr ParamInfo kInstrumentGenericParams[kGenericSlots] = {
+    {"openvst.instr.module.1.v1", "Module param 1", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.2.v1", "Module param 2", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.3.v1", "Module param 3", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.4.v1", "Module param 4", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.5.v1", "Module param 5", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.6.v1", "Module param 6", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.7.v1", "Module param 7", "", 0.0f, 1.0f, 0.0f, ""},
+    {"openvst.instr.module.8.v1", "Module param 8", "", 0.0f, 1.0f, 0.0f, ""},
 };
 
 inline const ModuleInfo* findModule(const juce::String& id) {
@@ -103,6 +132,38 @@ inline constexpr int unionParamIndex(bool instrument, const char* paramID) {
     return -1;
 }
 
+// Host-facing parameter set: the built-in union, then the permanent generic
+// slots used by catalogue-installed modules. Built-in positions never move.
+inline constexpr int hostParamCount(bool instrument) {
+    return unionParamCount(instrument) + kGenericSlots;
+}
+
+inline constexpr const ParamInfo* hostParam(bool instrument, int index) {
+    const int built = unionParamCount(instrument);
+    if (index < 0) return nullptr;
+    if (index < built) return unionParam(instrument, index);
+    if (index < built + kGenericSlots)
+        return instrument ? &kInstrumentGenericParams[index - built]
+                          : &kFxGenericParams[index - built];
+    return nullptr;
+}
+
+inline constexpr bool hostParamsSane() {
+    for (int k = 0; k < 2; ++k) {
+        const bool ins = k != 0;
+        if (hostParamCount(ins) > kMaxHostParams) return false;
+        for (int i = 0; i < hostParamCount(ins); ++i) {
+            const ParamInfo* p = hostParam(ins, i);
+            if (p == nullptr || p->paramID == nullptr || p->name == nullptr
+                || p->endpoint == nullptr || p->unit == nullptr) return false;
+            if (!(p->min <= p->def && p->def <= p->max)) return false;
+            for (int j = 0; j < i; ++j)
+                if (cstrEq(p->paramID, hostParam(ins, j)->paramID)) return false;
+        }
+    }
+    return true;
+}
+
 inline constexpr bool paramsSane() {
     for (const auto& m : kModules) {
         if (m.paramCount < 0 || m.paramCount > kMaxParamsPerModule) return false;
@@ -131,8 +192,11 @@ inline constexpr bool registrySane() {
 }
 static_assert(registrySane(), "module registry must cover both kinds");
 static_assert(paramsSane(), "parameter tables must be unique, bounded and ordered");
+static_assert(hostParamsSane(), "host parameter union must be unique, bounded and ordered");
 static_assert(unionParamCount(false) <= kMaxParamsPerModule && unionParamCount(true) <= kMaxParamsPerModule,
               "the static union of one kind must fit the fixed DSP plumbing");
+static_assert(hostParamCount(false) <= kMaxHostParams && hostParamCount(true) <= kMaxHostParams,
+              "host parameters, including generic slots, must fit the fixed parameter array");
 static_assert(unionParamIndex(false, "openvst.fx.gain.v1") == 0,
               "the legacy FX gain automation ID stays at union position 0");
 }

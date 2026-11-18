@@ -1,0 +1,66 @@
+{
+  "schema": "openvst.ui/0",
+  "title": "Transient Shaper",
+  "layout": {
+    "type": "column",
+    "gap": 8,
+    "padding": 12,
+    "children": [
+      {
+        "type": "row",
+        "gap": 8,
+        "children": [
+          {
+            "type": "knob",
+            "param": "attack",
+            "label": "Attack",
+            "size": "medium",
+            "unit": "dB"
+          },
+          {
+            "type": "knob",
+            "param": "sustain",
+            "label": "Sustain",
+            "size": "medium",
+            "unit": "dB"
+          },
+          {
+            "type": "knob",
+            "param": "gain",
+            "label": "Output gain",
+            "size": "medium"
+          }
+        ]
+      },
+      {
+        "type": "group",
+        "title": "Readout",
+        "gap": 4,
+        "children": [
+          {
+            "type": "value",
+            "param": "attack",
+            "label": "Attack",
+            "precision": 1
+          },
+          {
+            "type": "value",
+            "param": "sustain",
+            "label": "Sustain",
+            "precision": 1
+          },
+          {
+            "type": "value",
+            "param": "gain",
+            "label": "Output gain",
+            "precision": 2
+          }
+        ]
+      },
+      {
+        "type": "label",
+        "text": "Transient Shaper: differential envelope shaping."
+      }
+    ]
+  }
+}

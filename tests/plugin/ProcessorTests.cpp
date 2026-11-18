@@ -32,7 +32,7 @@ static float valueByID(Processor& pr,const char* pid) {
 int main() {
  try {
     Processor fx(false); check(!fx.supportsDoublePrecisionProcessing(),"double must be refused");
-    check(fx.getParameters().size()==4,"static union: legacy gain + three transient shaper parameters");
+    check(fx.getParameters().size()==openvst::hostParamCount(false),"host union: built-in parameters plus permanent catalogue slots");
     auto* id=dynamic_cast<juce::AudioProcessorParameterWithID*>(fx.getParameters()[0]);
     check(id && id->paramID=="openvst.fx.gain.v1","permanent parameter ID");
     fx.prepareToPlay(48000,2049); check(fx.ready(),fx.status().toRawUTF8());
@@ -58,7 +58,7 @@ int main() {
     restored.prepareToPlay(48000,64); check(!restored.ready(),"prepare must not hide failed restore");
     std::cout<<"PASS versioned state, exact identity, invalid/truncated/hash mismatch and bypass\n";
     for(int i=0;i<3;++i) { fx.releaseResources(); check(!fx.ready(),"release"); fx.prepareToPlay(48000,64); check(fx.ready(),"reprepare"); fx.reset(); block(fx,513,0.375f); }
-    Processor ins(true); check(ins.getParameters().isEmpty(),"no dynamic manifest params"); ins.prepareToPlay(48000,2049); check(ins.ready(),ins.status().toRawUTF8());
+    Processor ins(true); check(ins.getParameters().size()==openvst::hostParamCount(true),"instrument host union includes catalogue slots"); ins.prepareToPlay(48000,2049); check(ins.ready(),ins.status().toRawUTF8());
     auto b=synth(ins,true);
     for(int i=0;i<b.getNumSamples();++i) {
        double l=0,r=0;
@@ -89,11 +89,11 @@ int main() {
     insRestored.setStateInformation(state.getData(),(int)state.getSize()); check(!insRestored.ready(),"cross-variant rejected");
     std::cout<<"PASS instrument state, cross-variant rejection, host partition invariance\n";
     // --- Module registry: selection, defaults, refusal -----------------------------------
-    check(fx.getParameters().size()==4 && fx.moduleID()=="org.openvst.spike.stereo-gain","default FX selection");
+    check(fx.getParameters().size()==openvst::hostParamCount(false) && fx.moduleID()=="org.openvst.spike.stereo-gain","default FX selection");
     check(!fx.setModuleID("org.example.transient-shaper"),"unknown id refused");
     check(!fx.setModuleID("org.openvst.spike.note-grid"),"cross-kind id refused");
     check(fx.moduleID()=="org.openvst.spike.stereo-gain","refusal keeps the current selection");
-    check(fx.getParameters().size()==4,"gain parameter survives selection attempts");
+    check(fx.getParameters().size()==openvst::hostParamCount(false),"gain parameter survives selection attempts");
     auto* idAfter=dynamic_cast<juce::AudioParameterFloat*>(fx.getParameters()[0]);
     check(idAfter && idAfter->paramID=="openvst.fx.gain.v1" && idAfter->getNormalisableRange().start==0 && idAfter->getNormalisableRange().end==2,"parameter identity unchanged");
     check(fx.setModuleID("org.openvst.spike.stereo-gain"),"known id accepted");
@@ -149,6 +149,14 @@ int main() {
     // --- Per-module parameters: union, transient shaper, refusal --------------------------
     const char* fxIDs[]={"openvst.fx.gain.v1","openvst.ts.attack.v1","openvst.ts.sustain.v1","openvst.ts.gain.v1"};
     for(int i=0;i<4;++i) { auto* pid=dynamic_cast<juce::AudioProcessorParameterWithID*>(fx.getParameters()[i]); check(pid && pid->paramID==fxIDs[i],"union position frozen for automation"); }
+    // Permanent catalogue slots follow the built-in union. Their IDs and
+    // normalised range never change, whatever module currently uses them.
+    for(int i=0;i<openvst::kGenericSlots;++i) {
+        auto* slot=dynamic_cast<juce::AudioParameterFloat*>(fx.getParameters()[4+i]);
+        const juce::String expected="openvst.fx.module."+juce::String(i+1)+".v1";
+        check(slot && slot->paramID==expected,"generic slot identity is permanent");
+        check(slot->getNormalisableRange().start==0.0f && slot->getNormalisableRange().end==1.0f,"generic slot is normalised");
+    }
     auto* tsInfo=findModule("org.openvst.spike.transient-shaper");
     check(tsInfo && tsInfo->paramCount==3 && juce::String(tsInfo->mainProcessor)=="TransientShaper","transient shaper registered as an effect");
     check(tsInfo && juce::String(tsInfo->sourceSHA256)=="27ee6305dba4fc46cf011298debe7889ae93d707221d4f6fc626006d3c6d8c32"
@@ -163,7 +171,7 @@ int main() {
     Processor tsFx(false); tsFx.prepareToPlay(48000,64); check(tsFx.ready(),tsFx.status().toRawUTF8());
     check(tsFx.setModuleID("org.openvst.spike.transient-shaper"),"transient shaper selectable by identity");
     tsFx.reprepare(); check(tsFx.ready(),tsFx.status().toRawUTF8());
-    check(tsFx.getParameters().size()==4,"union never reshapes when the module changes");
+    check(tsFx.getParameters().size()==openvst::hostParamCount(false),"union never reshapes when the module changes");
     near(valueByID(tsFx,"openvst.fx.gain.v1"),1.0f,"inactive gain parameter stays present at its default");
     // Neutral at declared defaults: exact passthrough (spike-measured 0.0 error).
     {
@@ -255,6 +263,84 @@ int main() {
     check(rangeFx.ready(),"in-range restore re-arms the plugin, prepare brings it back");
     near(valueByID(rangeFx,"openvst.ts.attack.v1"),12.0f,"in-range value applied exactly");
     std::cout<<"PASS per-module state roundtrip, out-of-range and unknown-id refusal\n";
+    // --- Installed-module path: generic slots and exact state identity --------------------
+    // The same DSP source is presented as a catalogue module, not a built-in.
+    // This proves the loading path and the slot mapping before the installer
+    // exists, without claiming anything about the store.
+    ModuleSpec installedSpec;
+    installedSpec.id="org.openvst.test.installed-ts";
+    installedSpec.name="Installed TS";
+    installedSpec.version="9.9.9";
+    installedSpec.kind="effect"; installedSpec.instrument=false; installedSpec.builtin=false;
+    {
+        const juce::File root(Paths::defaults().fixtures);
+        installedSpec.sourcePath=root.getChildFile("transient_shaper.cmajor").getFullPathName().toStdString();
+        installedSpec.manifestPath=root.getChildFile("transient_shaper.cmajorpatch").getFullPathName().toStdString();
+    }
+    installedSpec.sourceSHA256="27ee6305dba4fc46cf011298debe7889ae93d707221d4f6fc626006d3c6d8c32";
+    installedSpec.manifestSHA256="d87cd4f2f719d2109adb53c3b398757f39d1a17acd258172c74201ac2696b428";
+    installedSpec.packageSHA256=juce::String::repeatedString("a",64).toStdString();
+    installedSpec.mainProcessor="TransientShaper";
+    installedSpec.params={
+        {"test.attack","Attack","attack","dB",-12.0f,12.0f,0.0f},
+        {"test.sustain","Sustain","sustain","dB",-12.0f,12.0f,0.0f},
+        {"test.gain","Output gain","gain","",0.0f,2.0f,1.0f}};
+    Processor instFx(false);
+    instFx.setInstalledModules({installedSpec});
+    check(instFx.setModule(installedSpec.id.c_str(),installedSpec.sourceSHA256.c_str()),"installed module selectable by exact identity");
+    check(instFx.moduleID()==installedSpec.id.c_str() && instFx.packageHash()==installedSpec.packageSHA256.c_str(),"installed identity exposed");
+    const int slot=instFx.moduleParamHostIndex(0);
+    check(slot==openvst::unionParamCount(false),"installed params map to the first generic slot");
+    auto* slotParam=dynamic_cast<juce::AudioParameterFloat*>(instFx.getParameters()[slot]);
+    check(slotParam && slotParam->paramID=="openvst.fx.module.1.v1","slot has its permanent automation ID");
+    instFx.prepareToPlay(48000,64); check(instFx.ready(),instFx.status().toRawUTF8());
+    block(instFx,513,1.0f);
+    instFx.setModuleParamValue(2,0.5f);
+    near(instFx.moduleParamValue(2),0.5f,"real value survives the normalised slot");
+    auto* gainSlot=dynamic_cast<juce::AudioParameterFloat*>(instFx.getParameters()[instFx.moduleParamHostIndex(2)]);
+    check(gainSlot && gainSlot->paramID=="openvst.fx.module.3.v1","gain maps to the third generic slot");
+    near(gainSlot->get(),0.25f,"0.5 in a 0..2 range is 0.25 in the 0..1 slot");
+    block(instFx,513,0.5f);
+    instFx.setModuleParamValue(0,9.0f);
+    instFx.setModuleParamValue(1,-6.0f);
+    instFx.setModuleParamValue(2,1.5f);
+    juce::MemoryBlock instState; instFx.getStateInformation(instState);
+    juce::var instDoc; juce::JSON::parse(instState.toString(),instDoc);
+    check((int)instDoc["schema"]==3,"state schema 3 for a catalogue module");
+    check(juce::String(instState.toString()).contains(installedSpec.packageSHA256.c_str()),"state carries the package digest");
+    check(!juce::String(instState.toString()).contains("/home/"),"installed state has no path leak");
+    Processor restoredInst(false);
+    restoredInst.setInstalledModules({installedSpec});
+    restoredInst.setStateInformation(instState.getData(),(int)instState.getSize());
+    check(restoredInst.moduleID()==installedSpec.id.c_str(),"installed state restores the exact id");
+    near(restoredInst.moduleParamValue(0),9.0f,"installed attack roundtrip");
+    near(restoredInst.moduleParamValue(1),-6.0f,"installed sustain roundtrip");
+    near(restoredInst.moduleParamValue(2),1.5f,"installed gain roundtrip");
+    restoredInst.prepareToPlay(48000,64); check(restoredInst.ready(),restoredInst.status().toRawUTF8());
+    // The restored attack is +9 dB, so a constant onset is boosted before the
+    // envelope settles. Check that the restored module really processes audio
+    // instead of expecting a pure gain that its parameters do not describe.
+    { juce::AudioBuffer<float> shaped(2,513); juce::MidiBuffer m;
+      for(int i=0;i<513;++i) { shaped.setSample(0,i,0.25f); shaped.setSample(1,i,-0.75f); }
+      restoredInst.processBlock(shaped,m);
+      float peak=0.0f; for(int i=0;i<513;++i) { check(std::isfinite(shaped.getSample(0,i)),"installed restored render finite"); peak=std::max(peak,std::abs(shaped.getSample(0,i))); }
+      check(peak>0.375f,"restored installed module processes audio with its own parameters"); }
+    // Unknown installed module: refused, never substituted by a built-in.
+    Processor missing(false);
+    missing.setStateInformation(instState.getData(),(int)instState.getSize());
+    check(!missing.ready(),"state for an absent installed module is refused");
+    check(missing.moduleID()=="org.openvst.spike.stereo-gain","absent module keeps the default selection");
+    // Wrong package digest: refused even when the source hash matches.
+    auto wrongPkg=juce::String(instState.toString()).replace(installedSpec.packageSHA256.c_str(),juce::String::repeatedString("b",64));
+    Processor tamperedPkg(false); tamperedPkg.setInstalledModules({installedSpec});
+    tamperedPkg.setStateInformation(wrongPkg.toRawUTF8(),wrongPkg.getNumBytesAsUTF8());
+    check(!tamperedPkg.ready(),"package digest mismatch is refused");
+    // Wrong source digest: no silent fallback to the same id at another version.
+    auto wrongSrc=juce::String(instState.toString()).replace(installedSpec.sourceSHA256.c_str(),juce::String::repeatedString("c",64));
+    Processor tamperedSrc(false); tamperedSrc.setInstalledModules({installedSpec});
+    tamperedSrc.setStateInformation(wrongSrc.toRawUTF8(),wrongSrc.getNumBytesAsUTF8());
+    check(!tamperedSrc.ready(),"source digest mismatch is refused");
+    std::cout<<"PASS installed module: generic slot mapping, schema 3 identity, refusal of absent/tampered modules\n";
     // --- end per-module parameter tests ---------------------------------------------------
     std::ofstream raw(PLUGIN_ARTIFACT_DIR "/instrument.f32",std::ios::binary); for(int i=0;i<2049;++i) for(int c=0;c<2;++c) { float f=b.getSample(c,i); raw.write((char*)&f,4); }
     for(int n : {0,1,7,511,513}) { juce::AudioBuffer<float> small(2,n); juce::MidiBuffer m; ins.processBlock(small,m); for(int c=0;c<2;++c) for(int i=0;i<n;++i) check(std::isfinite(small.getSample(c,i)),"finite variable synth"); }

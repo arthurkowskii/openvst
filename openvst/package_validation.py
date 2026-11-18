@@ -89,6 +89,52 @@ _PATCH_TEXT_LIMITS = {
     "mainProcessor": 128,
 }
 
+# Contract v0 UI document (openvst.ui/0). Data only: no script, no markup, no
+# remote resource, no styling key. Every limit below is a hard cap; nothing is
+# repaired, and an unknown key is refused instead of ignored.
+UI_SCHEMA = "openvst.ui/0"
+_UI_MAX_BYTES = 64 * 1024
+_UI_MAX_DEPTH = 8
+_UI_MAX_NODES = 128
+_UI_MAX_TEXT = 120
+_UI_MAX_TITLE = 64
+_UI_MAX_UNIT = 16
+_UI_MAX_PARAM_ID = 120
+_UI_MAX_PATH_CHARS = 240
+_UI_GAP_MAX = 32
+_UI_PADDING_MAX = 32
+_UI_EXTENT_MIN = 24
+_UI_EXTENT_MAX = 400
+_UI_SPACER_MAX = 64
+_UI_PRECISION_MAX = 6
+_UI_MAX_BINDINGS = 2
+_UI_CONTROL_SIZES = ("small", "medium", "large")
+_UI_BASE_KEYS = frozenset({"type", "gap", "padding", "width", "height", "visible"})
+_UI_CONTAINER_KEYS = _UI_BASE_KEYS | {"children"}
+_UI_CONTAINER_TYPES = frozenset({"column", "row", "group"})
+_UI_LEAF_TYPES = frozenset({"knob", "slider", "toggle", "value", "label", "spacer"})
+_UI_TYPES = _UI_CONTAINER_TYPES | _UI_LEAF_TYPES
+_UI_TYPE_KEYS = {
+    "column": _UI_CONTAINER_KEYS,
+    "row": _UI_CONTAINER_KEYS,
+    "group": _UI_CONTAINER_KEYS | {"title"},
+    "knob": _UI_BASE_KEYS | {"param", "label", "size", "unit"},
+    "slider": _UI_BASE_KEYS | {"param", "label", "size", "unit"},
+    "toggle": _UI_BASE_KEYS | {"param", "label"},
+    "value": _UI_BASE_KEYS | {"param", "label", "precision"},
+    "label": _UI_BASE_KEYS | {"text"},
+    "spacer": _UI_BASE_KEYS | {"size"},
+}
+_UI_REQUIRED_KEYS = {
+    "knob": frozenset({"param"}),
+    "slider": frozenset({"param"}),
+    "toggle": frozenset({"param"}),
+    "value": frozenset({"param"}),
+    "label": frozenset({"text"}),
+    # A group is a captioned frame: without a caption it is not a group.
+    "group": frozenset({"title"}),
+}
+
 NOT_VALIDATED = (
     "package signature and publisher authenticity (detached, outside the ZIP)",
     "author identity or account ownership",
@@ -558,6 +604,253 @@ def _validate_resources(report: PackageReport, resources: Any,
     return parsed
 
 
+def _validate_ui_declaration(report: PackageReport, value: Any,
+                             limits: Limits) -> str | None:
+    """Validate the manifest 'ui' key: a safe relative POSIX path to a .json file."""
+    if type(value) is not str:
+        report.error("manifest_type", "ui must be a string", MANIFEST_NAME)
+        return None
+    if not 1 <= len(value) <= _UI_MAX_PATH_CHARS:
+        report.error("manifest_value",
+                     f"ui must be 1..{_UI_MAX_PATH_CHARS} characters", MANIFEST_NAME)
+        return None
+    if "\\" in value:
+        report.error("manifest_value", "ui must not contain a backslash", MANIFEST_NAME)
+        return None
+    if not value.lower().endswith(".json"):
+        report.error("manifest_value", "ui must point to a .json file", MANIFEST_NAME)
+        return None
+    if value == MANIFEST_NAME:
+        report.error("manifest_value", "ui must not point to the manifest", MANIFEST_NAME)
+        return None
+    problem = _entry_path_problem(value, limits)
+    if problem:
+        report.error("manifest_value", f"ui is unsafe: {problem}", MANIFEST_NAME)
+        return None
+    return value
+
+
+def _ui_plain_text(report: PackageReport, value: Any, where: str,
+                   max_len: int) -> str | None:
+    """A user-visible string: 1..max_len printable ASCII characters."""
+    if type(value) is not str:
+        report.error("ui_schema", f"{where} must be a string", where)
+        return None
+    if not 1 <= len(value) <= max_len:
+        report.error("ui_bounds", f"{where} must be 1..{max_len} characters", where)
+        return None
+    if not value.isascii() or any(unicodedata.category(char) == "Cc" for char in value):
+        report.error("ui_schema", f"{where} must be printable ASCII", where)
+        return None
+    return value
+
+
+def _ui_integer(report: PackageReport, value: Any, where: str,
+                low: int, high: int) -> int | None:
+    if type(value) is not int:
+        report.error("ui_schema", f"{where} must be an integer", where)
+        return None
+    if not low <= value <= high:
+        report.error("ui_bounds", f"{where} must be in {low}..{high}", where)
+        return None
+    return value
+
+
+def _ui_extent(report: PackageReport, value: Any, where: str) -> None:
+    """width/height: 'auto', 'fill' or an integer pixel size."""
+    if type(value) is str:
+        if value not in ("auto", "fill"):
+            report.error("ui_schema", f"{where} must be 'auto', 'fill' or a size in "
+                         f"{_UI_EXTENT_MIN}..{_UI_EXTENT_MAX}", where)
+        return
+    _ui_integer(report, value, where, _UI_EXTENT_MIN, _UI_EXTENT_MAX)
+
+
+class _UiState:
+    """Mutable counters for one UI document; never shared between documents."""
+
+    def __init__(self, parameters: dict[str, dict[str, Any]]) -> None:
+        self.parameters = parameters
+        self.nodes = 0
+        self.bindings: dict[str, int] = {}
+        self.aborted = False
+
+
+def _ui_bind_param(report: PackageReport, param_id: str, where: str,
+                   node_type: str, state: _UiState) -> None:
+    if len(param_id) > _UI_MAX_PARAM_ID:
+        report.error("ui_bounds",
+                     f"{where}.param must be at most {_UI_MAX_PARAM_ID} characters",
+                     f"{where}.param")
+        return
+    declaration = state.parameters.get(param_id)
+    if declaration is None:
+        report.error("ui_param_unknown",
+                     f"{where}.param {param_id!r} is not declared in the manifest",
+                     f"{where}.param")
+        return
+    count = state.bindings.get(param_id, 0) + 1
+    state.bindings[param_id] = count
+    if count > _UI_MAX_BINDINGS:
+        report.error("ui_param_duplicate_binding",
+                     f"{where}.param {param_id!r} is bound more than "
+                     f"{_UI_MAX_BINDINGS} times", f"{where}.param")
+        return
+    if node_type == "toggle":
+        minimum = declaration.get("min")
+        maximum = declaration.get("max")
+        if not (isinstance(minimum, (int, float)) and isinstance(maximum, (int, float))
+                and 0 <= minimum and maximum <= 1):
+            report.error("ui_schema",
+                         f"{where}.param {param_id!r} cannot drive a toggle: its "
+                         f"declared range must be within 0..1", f"{where}.param")
+
+
+def _validate_ui_node(report: PackageReport, node: Any, where: str,
+                      depth: int, state: _UiState) -> None:
+    """Validate one component node. 'where' is the JSON path of the node."""
+    if state.aborted:
+        return
+    if depth > _UI_MAX_DEPTH:
+        report.error("ui_bounds",
+                     f"{where} exceeds the maximum depth of {_UI_MAX_DEPTH}", where)
+        state.aborted = True
+        return
+    state.nodes += 1
+    if state.nodes > _UI_MAX_NODES:
+        report.error("ui_bounds",
+                     f"the UI document exceeds {_UI_MAX_NODES} nodes", where)
+        state.aborted = True
+        return
+    if type(node) is not dict:
+        report.error("ui_schema", f"{where} must be an object", where)
+        return
+    node_type = node.get("type")
+    if type(node_type) is not str:
+        report.error("ui_schema", f"{where}.type is required and must be a string",
+                     f"{where}.type")
+        return
+    if node_type not in _UI_TYPES:
+        report.error("ui_unknown_type", f"unknown component type {node_type!r}",
+                     f"{where}.type")
+        return
+
+    allowed = _UI_TYPE_KEYS[node_type]
+    for key in sorted(node.keys() - allowed):
+        report.error("ui_unknown_key",
+                     f"unknown key {key!r} for component type {node_type!r}",
+                     f"{where}.{key}")
+    for key in sorted(_UI_REQUIRED_KEYS.get(node_type, frozenset()) - node.keys()):
+        report.error("ui_schema", f"{where}.{key} is required", f"{where}.{key}")
+
+    if "gap" in node:
+        _ui_integer(report, node["gap"], f"{where}.gap", 0, _UI_GAP_MAX)
+    if "padding" in node:
+        _ui_integer(report, node["padding"], f"{where}.padding", 0, _UI_PADDING_MAX)
+    if "width" in node:
+        _ui_extent(report, node["width"], f"{where}.width")
+    if "height" in node:
+        _ui_extent(report, node["height"], f"{where}.height")
+    if "visible" in node and type(node["visible"]) is not bool:
+        report.error("ui_schema", f"{where}.visible must be a boolean",
+                     f"{where}.visible")
+
+    if node_type == "group" and "title" in node:
+        _ui_plain_text(report, node["title"], f"{where}.title", _UI_MAX_TITLE)
+    if node_type in ("knob", "slider"):
+        if "size" in node and (type(node["size"]) is not str
+                               or node["size"] not in _UI_CONTROL_SIZES):
+            report.error("ui_schema",
+                         f"{where}.size must be 'small', 'medium' or 'large'",
+                         f"{where}.size")
+        if "unit" in node:
+            _ui_plain_text(report, node["unit"], f"{where}.unit", _UI_MAX_UNIT)
+    if node_type == "value" and "precision" in node:
+        _ui_integer(report, node["precision"], f"{where}.precision", 0, _UI_PRECISION_MAX)
+    if node_type == "spacer" and "size" in node:
+        _ui_integer(report, node["size"], f"{where}.size", 0, _UI_SPACER_MAX)
+    if node_type == "label" and "text" in node:
+        _ui_plain_text(report, node["text"], f"{where}.text", _UI_MAX_TEXT)
+
+    if node_type in ("knob", "slider", "toggle", "value"):
+        if "label" in node:
+            _ui_plain_text(report, node["label"], f"{where}.label", _UI_MAX_TEXT)
+        if "param" in node:
+            param_id = node["param"]
+            if type(param_id) is not str:
+                report.error("ui_schema", f"{where}.param must be a string",
+                             f"{where}.param")
+            else:
+                _ui_bind_param(report, param_id, where, node_type, state)
+
+    if node_type in _UI_CONTAINER_TYPES and "children" in node:
+        children = node["children"]
+        if type(children) is not list:
+            report.error("ui_schema", f"{where}.children must be an array",
+                         f"{where}.children")
+        else:
+            if not children and node_type != "group":
+                # A column or a row with nothing in it has no size and no
+                # purpose; the renderer refuses it too.
+                report.error("ui_schema",
+                             f"{where} of type {node_type!r} must have at least "
+                             f"one child", f"{where}.children")
+            for index, child in enumerate(children):
+                _validate_ui_node(report, child, f"{where}.children[{index}]",
+                                  depth + 1, state)
+
+
+def _validate_ui_document(report: PackageReport, document: Any,
+                           parameters: list[dict[str, Any]]) -> None:
+    """Validate one openvst.ui/0 document. Nothing is interpreted or executed."""
+    if type(document) is not dict:
+        report.error("ui_schema", "the UI document root must be an object", "<root>")
+        return
+    for key in sorted(document.keys() - {"schema", "title", "layout"}):
+        report.error("ui_unknown_key", f"unknown top-level key {key!r}", key)
+    if "schema" not in document:
+        report.error("ui_schema", "schema is required", "schema")
+    elif document["schema"] != UI_SCHEMA:
+        report.error("ui_schema", f"schema must be {UI_SCHEMA!r}", "schema")
+    if "title" in document:
+        _ui_plain_text(report, document["title"], "title", _UI_MAX_TITLE)
+    if "layout" not in document:
+        report.error("ui_schema", "layout is required", "layout")
+        return
+    state = _UiState({entry["id"]: entry for entry in parameters})
+    _validate_ui_node(report, document["layout"], "layout", 1, state)
+
+
+def _validate_ui_entry(zf: zipfile.ZipFile, files: dict[str, zipfile.ZipInfo],
+                       report: PackageReport, ui_path: str,
+                       parameters: list[dict[str, Any]]) -> None:
+    """Read and validate the declared UI document, read-only."""
+    info = files.get(ui_path)
+    if info is None:
+        report.error("ui_missing", "the declared ui document does not exist in the archive",
+                     ui_path)
+        return
+    if info.file_size > _UI_MAX_BYTES:
+        report.error("ui_too_large",
+                     f"the ui document exceeds {_UI_MAX_BYTES} bytes", ui_path)
+        return
+    data, issue = _read_entry(zf, info, _UI_MAX_BYTES, "ui_too_large")
+    if issue is not None:
+        report.errors.append(issue)
+        return
+    try:
+        document = parse_json_strict(data or b"")
+    except _DuplicateKey:
+        report.error("ui_invalid_json", "duplicate JSON object key in the ui document",
+                     ui_path)
+        return
+    except (_NonFiniteNumber, ValueError, UnicodeDecodeError, RecursionError):
+        report.error("ui_invalid_json", "the ui document is not strict UTF-8 JSON",
+                     ui_path)
+        return
+    _validate_ui_document(report, document, parameters)
+
+
 def _validate_manifest(report: PackageReport, manifest: Any,
                        limits: Limits) -> dict[str, Any] | None:
     if type(manifest) is not dict:
@@ -566,7 +859,7 @@ def _validate_manifest(report: PackageReport, manifest: Any,
     if not _require_keys(
         report, manifest, "manifest",
         {"schema", "module", "runtime", "parameters", "resources"},
-        {"schema", "module", "runtime", "parameters", "resources"},
+        {"schema", "module", "runtime", "parameters", "resources", "ui"},
     ):
         return None
     if manifest["schema"] != SCHEMA:
@@ -585,8 +878,11 @@ def _validate_manifest(report: PackageReport, manifest: Any,
     resources = _validate_resources(report, manifest["resources"], limits)
     if resources is None:
         return None
+    ui_path = None
+    if "ui" in manifest:
+        ui_path = _validate_ui_declaration(report, manifest["ui"], limits)
     return {"module": module, "runtime": runtime,
-            "parameters": parameters, "resources": resources}
+            "parameters": parameters, "resources": resources, "ui": ui_path}
 
 
 def _open_package(path: str) -> tuple[BinaryIO | None, os.stat_result]:
@@ -755,11 +1051,14 @@ def _check_archive(zf: zipfile.ZipFile, report: PackageReport,
         if name != MANIFEST_NAME:
             suffix = posixpath.splitext(name)[1].lower()
             if suffix not in _ASSET_SUFFIXES and suffix not in _DSP_SUFFIXES:
-                report.error("file_forbidden_suffix",
-                             f"suffix {suffix or '(none)'} is not allowed in contract v0",
-                             raw)
-                failed = True
-                continue
+                # A .json file can only be a declared UI document. Whether it is
+                # declared is settled later, from the manifest.
+                if suffix != ".json":
+                    report.error("file_forbidden_suffix",
+                                 f"suffix {suffix or '(none)'} is not allowed in contract v0",
+                                 raw)
+                    failed = True
+                    continue
         if name in files:
             report.error("archive_path_collision", f"duplicate entry {name!r}", raw)
             failed = True
@@ -898,6 +1197,12 @@ def _validate_links(zf: zipfile.ZipFile, files: dict[str, zipfile.ZipInfo],
     report.parameters = parsed["parameters"]
     report.resources = parsed["resources"]
 
+    # The UI document is validated right after the manifest, so a broken UI is
+    # reported even when a later check on the patch also fails.
+    ui_path = parsed.get("ui")
+    if ui_path is not None:
+        _validate_ui_entry(zf, files, report, ui_path, parsed["parameters"])
+
     patch_path = parsed["runtime"]["patch"]
     patch_info = files.get(patch_path)
     if patch_info is None:
@@ -981,6 +1286,9 @@ def _validate_links(zf: zipfile.ZipFile, files: dict[str, zipfile.ZipInfo],
     allowed.update(name for name in files
                    if name.startswith("patch/") and name.lower().endswith(".cmajor"))
     allowed.update(declared)
+    ui_path = parsed.get("ui")
+    if ui_path is not None:
+        allowed.add(ui_path)
     for name in files:
         if name in allowed:
             continue
@@ -996,6 +1304,9 @@ def _validate_links(zf: zipfile.ZipFile, files: dict[str, zipfile.ZipInfo],
             report.error("file_unexpected_location",
                          "DSP files must live under patch/ and be linked from runtime.patch",
                          name)
+        elif suffix == ".json":
+            report.error("file_unexpected_location",
+                         "JSON files must be declared as the ui document", name)
         else:
             report.error("file_forbidden_suffix",
                          f"suffix {suffix or '(none)'} is not allowed in contract v0", name)

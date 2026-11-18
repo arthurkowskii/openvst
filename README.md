@@ -17,6 +17,21 @@ Status: early prototype, private quality, not ready for third-party modules.
   hash, a per-module parameter table, permanent automation IDs and a state
   document that reads older projects. A parameter of an inactive module stays
   exposed to the host and has no effect.
+- A catalogue-installed module path: a package is downloaded from the v0
+  catalogue server, SHA-256 verified, extracted into an immutable
+  content-addressed store, loaded from the store, saved with its exact package
+  digest, and reopened offline after the server is stopped.
+- Eight permanent generic host parameter slots per variant for catalogue
+  modules. Built-in parameter positions never move; a catalogue module maps its
+  own parameters onto the slots and keeps its real names and ranges in the
+  editor and in the saved state.
+- A declarative module UI (`openvst.ui/0`): JSON layout data with knobs,
+  sliders, toggles, values, labels and groups, bound to module parameters and
+  rendered natively. No author JavaScript, HTML or remote resource is executed.
+  The `Tremolo` demo package exercises it.
+- A small catalogue server in Python's standard library: SQLite WAL,
+  content-addressed packages, Range downloads, package validation, approval and
+  audit. A single admin token, no accounts yet.
 - Host parameters, project state restore, and DAW automation, verified in REAPER
   on Linux and Windows with identical renders.
 - A package validator that inspects a module archive without extracting or
@@ -24,12 +39,19 @@ Status: early prototype, private quality, not ready for third-party modules.
 
 ## What does not exist yet
 
-- A catalogue, downloads, publishing and accounts. Modules are compiled at load
-  time from the trusted fixture folder only.
-- Any HTML/JS module interface. The editor is a minimal native window.
+- Accounts, 2FA, quotas beyond a simple token, public deployment and TLS
+  termination. The server runs behind a reverse proxy; there is no hosted
+  instance and no Publish screen in the plugin.
+- A catalogue UI beyond the minimal Discover/Install panel: search, filters,
+  demos, submissions, moderation and Unapproved are server/API or design only.
+- Custom HTML/CSS/JS module interfaces. Only the declarative UI v0 is
+  implemented; author JavaScript remains unimplemented and is not claimed safe.
+- Any sandbox, signature or containment of third-party module code. Cmajor
+  compiles the package source in-process. A signature would prove provenance,
+  not safety.
 - Any claim of real-time performance. No audio callback has been measured.
-- Signing or any containment of third-party module code. A signature would prove
-  provenance, not safety.
+- A Windows or macOS rerun of this build. The tests below were run on Linux;
+  the previous Windows render predates the catalogue changes.
 
 ## Build
 
@@ -44,20 +66,26 @@ hardcoded into the product.
 
 ## Tests
 
-    ctest --test-dir build/plugin --output-on-failure     # native processor tests
-    python3 -m unittest discover -s tests/packages -v     # package validator
+    ctest --test-dir build/plugin --output-on-failure     # native processor + store tests
+    python3 -m unittest discover -s tests/packages -v     # package and UI validator
+    python3 -m unittest discover -s tests/server -v       # catalogue server
+    python3 -m unittest discover -s tests/integration -v  # server -> install -> DSP -> offline
     sh scripts/daw_smoke.sh                               # REAPER render, Linux
 
 The DAW test renders projects and checks samples against analytic values, so a
-silent or bypassed plugin fails instead of passing.
+silent or bypassed plugin fails instead of passing. The integration test starts
+a real catalogue server, downloads and installs the demo package, renders audio,
+stops the server, then restores the module and its state from the store alone.
 
 ## Layout
 
-    src/plugin/      container: processor, state, editor, trusted module loading
-    spikes/runtime/  engine harness and the two Cmajor fixtures
+    src/plugin/      container: processor, store, catalogue client, module UI
+    server/          stdlib-only catalogue server and SQLite schema
+    spikes/runtime/  engine harness and the Cmajor fixtures
     openvst/         package validation, no execution of package content
-    tests/           native, package and DAW tests
-    docs/            architecture, module format, agent instructions
+    tools/           demo package builder
+    tests/           native, store, package, server, integration and DAW tests
+    docs/            architecture, module format, UI schema, agent instructions
 
 ## Licence
 
