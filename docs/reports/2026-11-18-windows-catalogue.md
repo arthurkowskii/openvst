@@ -18,14 +18,13 @@ ce build.
 **Build apres corrections d'interface** : SHA-256
 `a8cb72460834c73eadb153d358fddfebb234d511d087f7d823741e2faec70526` (FX) et
 `4b858c8de7b84e372b30e589c00bbfbe5666557fb6108a38dc6df00d368bd319`
-(Instrument). Compile sur la machine cible, non installe au moment de rediger :
-un DLL charge ne peut pas etre remplace, et le REAPER d'Arthur etait ouvert. Une
-tache planifiee `OpenVST-InstallWhenIdle` installe ces deux binaires des que
-plus aucun processus REAPER ne tourne, puis ecrit le resultat dans
-`%LOCALAPPDATA%\OpenVST-test\install-waiter-status.txt`. Les fichiers touches par
-ce second build sont uniquement `NativeEditor.h`, `ModuleUI.*`,
-`CataloguePanel.h` : le chemin audio, l'etat et les identifiants de parametres
-sont inchanges, mais **aucun rendu Windows ne couvre encore ce binaire**.
+(Instrument). Compile sur la machine cible, **jamais installe** : un DLL charge
+ne peut pas etre remplace, et le REAPER d'Arthur est reste ouvert. La tache
+`OpenVST-InstallWhenIdle` armee pour l'installer a la premiere fermeture a ete
+desarmee apres la verification visuelle du 19/11 (voir plus bas), pour que le
+binaire installe reste exactement celui que couvrent les rendus. Les fichiers
+touches par ce second build sont uniquement `NativeEditor.h`, `ModuleUI.*`,
+`CataloguePanel.h` ; aucun rendu Windows ne le couvre, et il n'est pas installe.
 
 Installation dans le dossier par utilisateur
 `%LOCALAPPDATA%\Programs\Common\VST3`, deja present dans le `vstpath64`
@@ -118,6 +117,36 @@ Modulation avec ses trois lignes, et un panneau Discover qui affiche
 Le panneau Discover a ete exerce par son propre code : `refreshNow()`,
 selection de la premiere entree, `installNow()`, sur le serveur de test local.
 
+### Correction : ce que la capture hors ecran exagerait
+
+Le rendu hors ecran peint le panneau sur une image vide, sans fond de fenetre.
+Sur cette image, les blancs translucides devenaient du blanc plein et le texte
+blanc disparaissait : les defauts 2 et 4 paraissaient donc plus graves qu'en
+usage. Dans un vrai hote qui peint du noir derriere le plugin, ces deux points
+se lisaient deja correctement. Le seul cas reellement casse etait la fenetre
+Linux transparente, ou le bureau et les dialogues REAPER traversaient le
+panneau. La correction reste justifiee, mais la capture hors ecran ne doit pas
+etre presentee comme la preuve d'un defaut visible chez l'utilisateur.
+
+## Verification visuelle dans le REAPER d'Arthur, 19/11
+
+Capture : `docs/reports/2026-11-19-windows-tremolo.png`.
+
+- Hote : `C:\Program Files\REAPER (x64)\reaper.exe`, REAPER 7.85, son
+  installation, sa configuration. Aucun profil de test, aucun `-cfgfile`.
+- Binaire charge : `8a55b473…` (FX), celui que couvrent tous les rendus.
+- Observé : `Ready - org.openvst.demo.tremolo`, SHA-256 du module, selecteur
+  `Tremolo`, bouton `Discover`, trois boutons rotatifs avec libelles et valeurs
+  (2.000 Hz / 0.500 / 1.000), groupe `Modulation` avec ses trois lignes
+  lisibles, ligne de description, aucun texte coupe, aucun chevauchement.
+- Ce que cela prouve : le panneau declaratif se rend nativement sous Windows,
+  dans le vrai hote, avec le module installe par le catalogue selectionne et
+  prepare. C'est la verification visuelle qui manquait au jalon.
+- Ce que cela ne prouve pas : le clic sur `Discover`, `Refresh` et `Install`
+  n'a pas ete filme dans son REAPER ; ce parcours reste prouve par le code du
+  panneau hors ecran et par la sonde headless. Le rendu a d'autres facteurs
+  d'echelle DPI n'a pas ete photographie.
+
 Aucune information ne depend de la couleur : les etats sont portes par du texte
 et des positions, jamais par une teinte.
 
@@ -142,9 +171,11 @@ et des positions, jamais par une teinte.
 
 ## Non teste, a ne pas presenter comme acquis
 
-- Pas de capture de l'editeur dans le REAPER d'Arthur : la verification visuelle
-  a ete faite hors ecran sous Linux. Le rendu natif Windows (DPI, theme des
-  widgets) n'est donc pas photographie.
+- Le parcours `Discover` / `Refresh` / `Install` n'a pas ete clique dans le
+  REAPER d'Arthur ; il est prouve par le code du panneau hors ecran et par la
+  sonde headless, pas par une capture de son ecran.
+- Le rendu de l'editeur a un facteur d'echelle DPI autre que celui de sa
+  machine n'a pas ete photographie.
 - Pas de mesure temps reel : ni temps de callback, ni xruns, ni PDC.
 - Pas de macOS.
 - Pas de bac a sable, pas de signature : Cmajor compile la source du paquet

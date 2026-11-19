@@ -25,8 +25,10 @@ with a measurement or a render. Answer him in French when he writes in French.
 
 ## State at handoff, 2026-11-18
 
-The catalogue milestone v0 is implemented on Linux and committed on `main`.
-It is not installed on Arthur's Windows machine for this commit.
+The catalogue milestone v0 is implemented and verified on Linux and Windows.
+Commit `325faf7` on `main` is the state: the Windows build was installed and
+rendered, and the report `docs/reports/2026-11-18-windows-catalogue.md` records
+the commands, hashes and remaining gaps. Read it before re-running anything.
 
 What works and is verified by the parent, not only by workers:
 
@@ -72,10 +74,12 @@ What is implemented:
 
 What is not done, and must not be claimed:
 
-- No Windows or macOS build, install or DAW render of this commit.
-- The module UI and the Discover panel have never been opened in a DAW on a
-  machine with a display. They are compiled, validated and headlessly parsed,
-  not visually verified.
+- No macOS build, install or DAW render.
+- The module UI and the Discover panel are verified in Arthur's REAPER on
+  Windows as a static panel (module installed, selected, prepared). The
+  Discover/Refresh/Install clicks were exercised by the panel's own code and by
+  the headless probe, not filmed in his session. A DPI scale other than his is
+  not photographed.
 - No deployed public catalogue, no TLS termination, no accounts, no 2FA, no
   quotas beyond a token and a simple rate limit.
 - No sandbox, no signature, no containment of package DSP. Cmajor compiles the
