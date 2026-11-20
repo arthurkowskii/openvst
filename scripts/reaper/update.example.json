@@ -1,0 +1,8 @@
+{
+  "kit": "%LOCALAPPDATA%\\OpenVST-build",
+  "vst3Dir": "%LOCALAPPDATA%\\Programs\\Common\\VST3",
+  "store": "%APPDATA%\\OpenVST\\modules",
+  "packages": [
+    "%LOCALAPPDATA%\\OpenVST-build\\packages\\creature-voice-0.1.0.openvst.zip"
+  ]
+}
