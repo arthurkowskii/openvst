@@ -51,14 +51,21 @@ def wait_health(url: str, deadline: float = 10.0) -> None:
 @unittest.skipUnless(PROBE.exists(), "build the plugin first: sh scripts/build_plugin.sh")
 class CatalogueEndToEnd(unittest.TestCase):
     def test_download_install_render_offline_restore(self) -> None:
+        self.exercise_module("make_demo_package.py", MODULE_ID)
+
+    def test_creature_voice_install_render_offline_restore(self) -> None:
+        self.exercise_module("make_creature_package.py", "org.openvst.creature-voice")
+
+    def exercise_module(self, builder: str, module_id: str) -> None:
         with tempfile.TemporaryDirectory(prefix="openvst-e2e-") as tmp:
             tmp_path = Path(tmp)
-            package = tmp_path / "tremolo.openvst.zip"
+            package = tmp_path / "module.openvst.zip"
             built = subprocess.run(
-                [sys.executable, str(ROOT / "tools" / "make_demo_package.py"), str(package)],
-                cwd=ROOT, text=True, capture_output=True, check=True)
+                [sys.executable, str(ROOT / "tools" / builder), str(package)],
+                cwd=ROOT, text=True, capture_output=True)
+            self.assertEqual(built.returncode, 0, built.stderr + built.stdout)
             info = json.loads(built.stdout)
-            self.assertEqual(info["module"]["id"], MODULE_ID)
+            self.assertEqual(info["module"]["id"], module_id)
 
             data = tmp_path / "server-data"
             seed = subprocess.run(
@@ -80,7 +87,7 @@ class CatalogueEndToEnd(unittest.TestCase):
                 store = tmp_path / "store"
                 state = tmp_path / "module.state"
                 common = [str(PROBE), "--store", str(store), "--runtime", str(RUNTIME),
-                          "--fixtures", str(FIXTURES), "--id", MODULE_ID]
+                          "--fixtures", str(FIXTURES), "--id", module_id]
                 online = subprocess.run(
                     common + ["--url", url, "--state-out", str(state)],
                     cwd=ROOT, text=True, capture_output=True, timeout=120)
@@ -102,6 +109,8 @@ class CatalogueEndToEnd(unittest.TestCase):
                 cwd=ROOT, text=True, capture_output=True, timeout=60)
             self.assertEqual(offline.returncode, 0, offline.stderr + offline.stdout)
             self.assertIn("OK id=", offline.stdout)
+            # The rendered peak and every parameter must survive a cold reopen.
+            self.assertEqual(online.stdout.strip(), offline.stdout.strip())
 
             installed = list(store.glob("*/**/install.json"))
             self.assertEqual(len(installed), 1, f"expected one install.json, got {installed}")

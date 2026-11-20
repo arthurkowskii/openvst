@@ -1,0 +1,9 @@
+{
+  "CmajorVersion": 1,
+  "ID": "org.openvst.creature-voice",
+  "version": "0.1.0",
+  "name": "Creature Voice",
+  "mainProcessor": "CreatureVoice",
+  "isInstrument": false,
+  "source": "CreatureVoice.cmajor"
+}

@@ -16,18 +16,57 @@ namespace {
 int fail(const juce::String& message) { std::cerr << "FAIL " << message << "\n"; return 1; }
 
 bool render(Processor& processor, float& peak) {
-    juce::AudioBuffer<float> buffer(2, 513);
+    juce::AudioBuffer<float> buffer(2, 512);
     juce::MidiBuffer midi;
-    for (int i = 0; i < 513; ++i) { buffer.setSample(0, i, 0.25f); buffer.setSample(1, i, -0.75f); }
-    processor.processBlock(buffer, midi);
     peak = 0.0f;
-    for (int c = 0; c < 2; ++c)
-        for (int i = 0; i < 513; ++i) {
-            const float v = buffer.getSample(c, i);
-            if (!std::isfinite(v)) return false;
-            peak = std::max(peak, std::abs(v));
+    // Exercise modules with short delay lines as well as zero-history effects.
+    for (int block = 0; block < 16; ++block) {
+        for (int i = 0; i < buffer.getNumSamples(); ++i) {
+            buffer.setSample(0, i, 0.25f);
+            buffer.setSample(1, i, -0.75f);
         }
+        processor.processBlock(buffer, midi);
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < buffer.getNumSamples(); ++i) {
+                const float v = buffer.getSample(c, i);
+                if (!std::isfinite(v)) return false;
+                peak = std::max(peak, std::abs(v));
+            }
+    }
     return peak > 0.0f;
+}
+
+double sidebandRatio(Processor& processor, float amplitude) {
+    constexpr float fs = 48000.0f;
+    constexpr double tau = 6.283185307179586;
+    constexpr int block = 240;
+    juce::AudioBuffer<float> buffer(2, block);
+    juce::MidiBuffer midi;
+    double sine = 0.0, cosine = 0.0;
+    for (int frame = 0; frame < 14400; frame += block) {
+        buffer.clear();
+        for (int i = 0; i < block; ++i)
+            buffer.setSample(0, i, amplitude * (float)std::sin(tau * 400.0 * (frame + i) / fs));
+        processor.processBlock(buffer, midi);
+        for (int i = 0; i < block; ++i) {
+            if (buffer.getSample(1, i) != 0.0f || !std::isfinite(buffer.getSample(0, i))) return -1.0;
+            if (frame < 9600) continue;
+            const auto angle = tau * 500.0 * (frame + i) / fs;
+            sine += buffer.getSample(0, i) * std::sin(angle);
+            cosine += buffer.getSample(0, i) * std::cos(angle);
+        }
+    }
+    return 2.0 * std::hypot(sine, cosine) / (4800.0 * amplitude);
+}
+
+float probeValue(const ParamSpec& param, bool tremolo) {
+    // Preserve the values consumed by the existing REAPER tremolo fixture.
+    if (tremolo) {
+        if (param.id == "speed") return 5.0f;
+        if (param.id == "amount") return 0.75f;
+        if (param.id == "level") return 1.5f;
+    }
+    return param.min + 0.375f * (param.max - param.min);
 }
 }
 
@@ -110,12 +149,15 @@ int main(int argc, char** argv) {
             return fail("cannot read state file");
         processor.setStateInformation(state.getData(), (int)state.getSize());
         if (processor.moduleID() != id) return fail("state restored another module");
-    } else {
-        processor.prepareToPlay(48000, 512);
-        if (!processor.ready()) return fail("prepare: " + processor.status());
-        processor.setModuleParamValue(0, 5.0f);
-        processor.setModuleParamValue(1, 0.75f);
-        processor.setModuleParamValue(2, 1.5f);
+    }
+
+    const bool tremolo = id == "org.openvst.demo.tremolo";
+    const auto& params = processor.module().params;
+    for (size_t i = 0; i < params.size(); ++i) {
+        const auto expected = probeValue(params[i], tremolo);
+        if (stateIn.isEmpty()) processor.setModuleParamValue((int)i, expected);
+        if (std::abs(processor.moduleParamValue((int)i) - expected) > 1e-4f)
+            return fail("unexpected parameter value: " + juce::String(params[i].id.c_str()));
     }
 
     processor.prepareToPlay(48000, 512);
@@ -123,24 +165,35 @@ int main(int argc, char** argv) {
     float peak = 0.0f;
     if (!render(processor, peak)) return fail("render failed");
 
-    if (!stateIn.isNotEmpty()) {
-        if (std::abs(processor.moduleParamValue(0) - 5.0f) > 1e-4f
-            || std::abs(processor.moduleParamValue(1) - 0.75f) > 1e-4f
-            || std::abs(processor.moduleParamValue(2) - 1.5f) > 1e-4f)
-            return fail("parameter values before state");
-        if (stateOut.isNotEmpty()) {
-            juce::MemoryBlock state;
-            processor.getStateInformation(state);
-            juce::File out{juce::File(stateOut)};
-            out.deleteFile();
-            juce::FileOutputStream stream{out};
-            if (stream.failedToOpen() || !stream.write(state.getData(), state.getSize()))
-                return fail("cannot write state file");
-        }
+    if (stateIn.isEmpty() && stateOut.isNotEmpty()) {
+        juce::MemoryBlock state;
+        processor.getStateInformation(state);
+        juce::File out{juce::File(stateOut)};
+        out.deleteFile();
+        juce::FileOutputStream stream{out};
+        if (stream.failedToOpen() || !stream.write(state.getData(), state.getSize()))
+            return fail("cannot write state file");
     }
 
     std::cout << "OK id=" << processor.moduleID() << " digest=" << processor.packageHash()
-              << " peak=" << peak << " attack=" << processor.moduleParamValue(0)
-              << " depth=" << processor.moduleParamValue(1) << " gain=" << processor.moduleParamValue(2) << "\n";
+              << " peak=" << peak;
+    for (size_t i = 0; i < params.size(); ++i)
+        std::cout << " " << params[i].id << "=" << processor.moduleParamValue((int)i);
+    if (id == "org.openvst.creature-voice") {
+        // Isolate ring modulation from the pitch branch and check the 400+100 Hz sideband.
+        processor.setModuleParamValue(1, 0.0f);
+        processor.setModuleParamValue(2, 100.0f);
+        processor.setModuleParamValue(3, 1.0f);
+        processor.setModuleParamValue(4, 0.16f);
+        processor.setModuleParamValue(5, 1.0f);
+        processor.prepareToPlay(48000, 512);
+        if (!processor.ready()) return fail("prepare sideband probe");
+        const double quiet = sidebandRatio(processor, 0.03f);
+        const double loud = sidebandRatio(processor, 0.7f);
+        if (quiet < 0.0 || quiet > 0.003 || loud < 0.35 || loud > 0.6)
+            return fail("reactive texture sideband or stereo isolation");
+        std::cout << " quiet_sideband=" << quiet << " loud_sideband=" << loud;
+    }
+    std::cout << "\n";
     return 0;
 }

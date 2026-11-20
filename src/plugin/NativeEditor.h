@@ -41,11 +41,11 @@ public:
     }
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xff1b1d22)); }
     void resized() override {
-        info.setBounds(12,12,getWidth()-24,130);
-        modules.setBounds(12,150,300,26);
-        discover.setBounds(getWidth()-152,150,140,26);
+        info.setBounds(16,12,getWidth()-32,46);
+        modules.setBounds(16,64,300,28);
+        discover.setBounds(getWidth()-156,64,140,28);
         auto content=getLocalBounds().reduced(12);
-        content.removeFromTop(190);
+        content.removeFromTop(94);
         if(catalogueVisible && catalogue) catalogue->setBounds(content);
         if(moduleUI && !catalogueVisible) {
             const int w=juce::jmin(content.getWidth(),moduleUI->preferredWidth());
@@ -132,7 +132,8 @@ private:
     void timerCallback() override {
         // Plain ASCII only: a non-ASCII literal compiled under a different code
         // page shows as mojibake in the host, as seen on Windows.
-        info.setText(p.getName()+" - private prototype\n"+p.moduleID()+" / "+p.moduleVersion()+"\nSHA256 "+p.moduleHash()+"\nCmajor 1.0.3209\n"+p.status(),juce::dontSendNotification);
+        info.setText(p.getName()+"  /  Sound Library\n"+p.status(),juce::dontSendNotification);
+        info.setTooltip(p.moduleID()+" / "+p.moduleVersion()+"\nSHA256 "+p.moduleHash()+"\nCmajor 1.0.3209");
         const int wanted=ids.indexOf(p.moduleID())+1;
         if(wanted>0 && modules.getSelectedId()!=wanted) modules.setSelectedId(wanted,juce::dontSendNotification);
         if(p.moduleID()!=lastModuleID) { lastModuleID=p.moduleID(); rebuildModuleList(); rebuildContent(); }

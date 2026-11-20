@@ -1,0 +1,21 @@
+{
+  "schema": "openvst.package/0",
+  "module": {
+    "id": "org.openvst.creature-voice", "version": "0.1.0",
+    "name": "Creature Voice", "kind": "effect", "vendor": "OpenVST", "license": "AGPL-3.0-only"
+  },
+  "runtime": {
+    "engine": "cmajor", "patch_format": 1, "host_api": "openvst-host/0",
+    "patch": "patch/CreatureVoice.cmajorpatch"
+  },
+  "parameters": [
+    {"id": "pitch", "name": "Pitch", "min": -12, "max": 0, "default": -7, "unit": "st"},
+    {"id": "body", "name": "Body", "min": 0, "max": 1, "default": 0.7},
+    {"id": "carrier", "name": "Carrier", "min": 25, "max": 250, "default": 65, "unit": "Hz"},
+    {"id": "texture", "name": "Texture", "min": 0, "max": 1, "default": 0.45},
+    {"id": "threshold", "name": "Threshold", "min": 0.02, "max": 0.5, "default": 0.14},
+    {"id": "mix", "name": "Mix", "min": 0, "max": 1, "default": 0.85}
+  ],
+  "resources": [],
+  "ui": "ui.json"
+}

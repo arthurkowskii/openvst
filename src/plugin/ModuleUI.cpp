@@ -12,11 +12,11 @@ constexpr int kMaxDepth = 8;
 const juce::Colour kAccent(0xffd9a441);
 // Explicit panel colours: the author cannot set a colour, and the host theme is
 // not ours to read, so the panel ships its own readable palette.
-const juce::Colour kBackground(0xff14161b);
-const juce::Colour kText(0xffe6e7ea);
-const juce::Colour kSubtleText(0xffb9bec7);
-const juce::Colour kGroupFill(0x22ffffff);
-const juce::Colour kGroupEdge(0x3affffff);
+const juce::Colour kBackground(0xff19151e);
+const juce::Colour kText(0xfff4eee7);
+const juce::Colour kSubtleText(0xffc9bfcd);
+const juce::Colour kGroupFill(0xff2a2230);
+const juce::Colour kGroupEdge(0xff5e4c61);
 
 juce::Font uiFont(float size) { return juce::Font(juce::FontOptions(size)); }
 
@@ -201,15 +201,13 @@ public:
     void refreshValue() override { for (auto& k : kids) k->refreshValue(); }
     void paint(juce::Graphics& g) override {
         if (!group) return;
-        // Frame starts below the title band, so the caption never collides with
-        // the rounded border.
-        auto frame = getLocalBounds().toFloat().withTrimmedTop(10.0f).reduced(0.5f);
-        g.setColour(kGroupFill); g.fillRoundedRectangle(frame, 6.0f);
-        g.setColour(kGroupEdge); g.drawRoundedRectangle(frame, 6.0f, 1.0f);
-        auto head = getLocalBounds().removeFromTop(20).reduced(padding, 0);
-        g.setColour(kBackground); g.fillRect(head);
-        g.setColour(kSubtleText);
-        g.setFont(uiFont(12.0f));
+        auto frame = getLocalBounds().toFloat().reduced(0.5f);
+        g.setColour(kGroupFill); g.fillRoundedRectangle(frame, 10.0f);
+        g.setColour(kGroupEdge); g.drawRoundedRectangle(frame, 10.0f, 1.0f);
+        g.drawHorizontalLine(26, 10.0f, frame.getRight() - 10.0f);
+        auto head = getLocalBounds().removeFromTop(26).reduced(10, 0);
+        g.setColour(kAccent);
+        g.setFont(uiFont(12.0f).boldened());
         g.drawText(title, head, juce::Justification::centredLeft, true);
     }
     void resized() override {
@@ -227,13 +225,16 @@ public:
         } else {
             const int n = (int)kids.size();
             const int usable = juce::jmax(0, content.getWidth() - gap * (n - 1));
-            int x = content.getX();
-            for (int i = 0; i < n; ++i) {
-                auto& k = *kids[(std::size_t)i];
-                int w = k.fixedW > 0 ? k.fixedW : usable / n;
-                if (i == n - 1) w = content.getRight() - x;
-                k.setBounds(x, content.getY(), w, k.fixedH > 0 ? k.fixedH : content.getHeight());
+            int wanted = 0;
+            for (const auto& child : kids) wanted += juce::jmax(1, child->preferredWidth());
+            int x = content.getX(), remaining = usable;
+            for (auto& child : kids) {
+                const int preference = juce::jmax(1, child->preferredWidth());
+                const int w = wanted > 0 ? remaining * preference / wanted : 0;
+                child->setBounds(x, content.getY(), w, child->fixedH > 0 ? child->fixedH : content.getHeight());
                 x += w + gap;
+                remaining -= w;
+                wanted -= preference;
             }
         }
     }
@@ -257,6 +258,37 @@ private:
     juce::String title;
 };
 
+class ModuleDialLook final : public juce::LookAndFeel_V4 {
+public:
+    void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
+                          float position, float start, float end, juce::Slider& slider) override {
+        const auto bounds = juce::Rectangle<float>((float)x, (float)y, (float)w, (float)h);
+        const auto centre = bounds.getCentre();
+        const float r = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f - 4.0f;
+        if (r < 4.0f) return;
+        const float angle = start + position * (end - start);
+        auto arc = [&](float to, juce::Colour colour) {
+            juce::Path path;
+            path.addCentredArc(centre.x, centre.y, r, r, 0.0f, start, to, true);
+            g.setColour(colour);
+            g.strokePath(path, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved,
+                                                   juce::PathStrokeType::rounded));
+        };
+        arc(end, kGroupEdge);
+        if (position > 0.0f) arc(angle, kAccent);
+        const auto face = bounds.withSizeKeepingCentre(r * 1.45f, r * 1.45f);
+        g.setGradientFill(juce::ColourGradient(juce::Colour(0xff4b3d52), face.getCentreX(), face.getY(),
+                                               kBackground, face.getCentreX(), face.getBottom(), false));
+        g.fillEllipse(face);
+        g.setColour(slider.hasKeyboardFocus(true) ? kAccent : kGroupEdge);
+        g.drawEllipse(face, 1.0f);
+        const auto tip = centre.getPointOnCircumference(r * 0.55f, angle);
+        const auto base = centre.getPointOnCircumference(r * 0.31f, angle);
+        g.setColour(kText);
+        g.drawLine({base, tip}, 2.2f);
+    }
+};
+
 class KnobItem final : public UIItem {
 public:
     KnobItem(Processor& pIn, int paramIn, juce::String label, juce::String unit, float min, float max, juce::String size)
@@ -266,6 +298,8 @@ public:
         name.setJustificationType(juce::Justification::centred);
         name.setFont(uiFont(12.0f));
         name.setColour(juce::Label::textColourId, kText);
+        slider.setLookAndFeel(&dialLook);
+        slider.setTitle(name.getText());
         slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 66, 18);
         slider.setRange(min, max, 0.001);
@@ -281,15 +315,19 @@ public:
         slider.onDragStart = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->beginChangeGesture(); };
         slider.onDragEnd = [this] { if (auto* h = p.hostParameter(p.moduleParamHostIndex(param))) h->endChangeGesture(); };
         slider.onValueChange = [this] { p.setModuleParamValue(param, (float)slider.getValue()); };
-        setSize(size == "large" ? 132 : size == "small" ? 88 : 110, size == "large" ? 112 : size == "small" ? 84 : 100);
+        knobWidth = size == "large" ? 132 : size == "small" ? 88 : 110;
+        knobHeight = size == "large" ? 112 : size == "small" ? 84 : 100;
     }
+    ~KnobItem() override { slider.setLookAndFeel(nullptr); }
     void refreshValue() override { if (!slider.isMouseButtonDown()) slider.setValue(p.moduleParamValue(param), juce::dontSendNotification); }
     void resized() override { auto r = getLocalBounds(); name.setBounds(r.removeFromTop(18)); slider.setBounds(r); }
 protected:
-    int contentWidth() const override { return getWidth(); }
-    int contentHeight() const override { return getHeight(); }
+    int contentWidth() const override { return knobWidth; }
+    int contentHeight() const override { return knobHeight; }
 private:
     Processor& p; int param;
+    int knobWidth, knobHeight;
+    ModuleDialLook dialLook;
     juce::Label name; juce::Slider slider;
 };
 

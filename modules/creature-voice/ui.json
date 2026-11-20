@@ -1,0 +1,30 @@
+{
+  "schema": "openvst.ui/0",
+  "title": "Creature Voice",
+  "layout": {
+    "type": "column", "gap": 12, "padding": 16,
+    "children": [
+      {"type": "label", "text": "VOCAL DESIGN   /   REACTIVE CREATURE PROCESSOR", "width": "fill"},
+      {"type": "row", "gap": 10, "width": "fill", "children": [
+        {"type": "group", "title": "01  BODY", "padding": 8, "children": [
+          {"type": "row", "gap": 6, "children": [
+            {"type": "knob", "param": "pitch", "size": "medium"},
+            {"type": "knob", "param": "body", "size": "medium"}
+          ]}
+        ]},
+        {"type": "group", "title": "02  REACTIVE TEXTURE", "padding": 8, "children": [
+          {"type": "row", "gap": 6, "children": [
+            {"type": "knob", "param": "carrier", "size": "medium"},
+            {"type": "knob", "param": "texture", "size": "medium"},
+            {"type": "knob", "param": "threshold", "size": "medium"}
+          ]}
+        ]},
+        {"type": "group", "title": "03  OUTPUT", "padding": 8, "children": [
+          {"type": "knob", "param": "mix", "size": "medium"}
+        ]}
+      ]},
+      {"type": "label", "text": "VOICE IN  >  PITCH BODY + LEVEL-REACTIVE RING  >  DRY / WET", "width": "fill"},
+      {"type": "label", "text": "Lower Threshold to bring the metallic layer in on a softer delivery.", "width": "fill"}
+    ]
+  }
+}

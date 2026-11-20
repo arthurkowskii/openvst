@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+processor CreatureVoice
+{
+    input stream float32<2> audioIn;
+    output stream float32<2> audioOut;
+    input event float32 pitch [[ name: "Pitch", min: -12.0, max: 0.0, init: -7.0 ]];
+    input event float32 body [[ name: "Body", min: 0.0, max: 1.0, init: 0.7 ]];
+    input event float32 carrier [[ name: "Carrier", min: 25.0, max: 250.0, init: 65.0 ]];
+    input event float32 texture [[ name: "Texture", min: 0.0, max: 1.0, init: 0.45 ]];
+    input event float32 threshold [[ name: "Threshold", min: 0.02, max: 0.5, init: 0.14 ]];
+    input event float32 mix [[ name: "Mix", min: 0.0, max: 1.0, init: 0.85 ]];
+
+    float32 ratio = 0.6674199f, bodyAmt = 0.7f, carrierHz = 65.0f;
+    float32 textureAmt = 0.45f, thresholdAmp = 0.14f, mixAmt = 0.85f;
+    event pitch (float32 v) { if (v == v) ratio = pow (2.0f, clamp (v, -12.0f, 0.0f) / 12.0f); }
+    event body (float32 v) { if (v == v) bodyAmt = clamp (v, 0.0f, 1.0f); }
+    event carrier (float32 v) { if (v == v) carrierHz = clamp (v, 25.0f, 250.0f); }
+    event texture (float32 v) { if (v == v) textureAmt = clamp (v, 0.0f, 1.0f); }
+    event threshold (float32 v) { if (v == v) thresholdAmp = clamp (v, 0.02f, 0.5f); }
+    event mix (float32 v) { if (v == v) mixAmt = clamp (v, 0.0f, 1.0f); }
+
+    float32<2>[16384] delay;
+    wrap<16384> cursor;
+    float32 phase, osc, envelope;
+    float32 smoothBody = 0.7f, smoothMix = 0.85f, smoothTexture = 0.45f;
+
+    float32<2> tap (float32 samples)
+    {
+        let i = int32 (samples);
+        let fraction = samples - float32 (i);
+        let first = delay[wrap<16384> (int32 (cursor) - i)];
+        let second = delay[wrap<16384> (int32 (cursor) - i - 1)];
+        return first + (second - first) * fraction;
+    }
+
+    void main()
+    {
+        let sr = float32 (processor.frequency);
+        let span = min (16380.0f, 0.042f * sr);
+        let slew = 1.0f - exp (-1.0f / (0.008f * sr));
+        let attack = 1.0f - exp (-1.0f / (0.004f * sr));
+        let release = 1.0f - exp (-1.0f / (0.045f * sr));
+        loop
+        {
+            let x = audioIn;
+            delay[cursor] = x;
+            let other = phase < 0.5f ? phase + 0.5f : phase - 0.5f;
+            // Complementary windows mask the wrap of each moving tap.
+            let window = 0.5f - 0.5f * cos (6.283185307f * phase);
+            let shifted = ratio >= 0.99999f ? x
+                : tap (1.0f + phase * span) * window + tap (1.0f + other * span) * (1.0f - window);
+            let level = max (abs (x[0]), abs (x[1]));
+            envelope += (level - envelope) * (level > envelope ? attack : release);
+            let opening = clamp ((envelope - thresholdAmp) / (0.6f * thresholdAmp), 0.0f, 1.0f);
+            let reactive = opening * opening * (3.0f - 2.0f * opening);
+            smoothBody += (bodyAmt - smoothBody) * slew;
+            smoothTexture += (textureAmt - smoothTexture) * slew;
+            smoothMix += (mixAmt - smoothMix) * slew;
+            let ring = smoothTexture * reactive;
+            let timbre = x * (1.0f - smoothBody) + shifted * smoothBody;
+            let wet = timbre * (1.0f - ring) + x * (sin (6.283185307f * osc) * ring);
+            audioOut <- mixAmt == 0.0f ? x : x + (wet - x) * smoothMix;
+            osc += carrierHz / sr;
+            if (osc >= 1.0f) osc -= 1.0f;
+            phase += (1.0f - ratio) / span;
+            if (phase >= 1.0f) phase -= 1.0f;
+            ++cursor;
+            advance();
+        }
+    }
+}
